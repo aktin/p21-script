@@ -1,4 +1,4 @@
-# p21-script
+# p21-script [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=aktin_p21-script&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=aktin_p21-script)
 A Python script to import inpatient treatment data according to § 21 KHEntgG into the AKTIN DWH
 
 ## Installation
