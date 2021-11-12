@@ -3,10 +3,10 @@
 Created on Wed Jan 20 11:36:55 2021
 @author: akombeiz
 """
-#@VERSION=1.3
-#@VIEWNAME=P21-Importskript (matching by billing)
-#@MIMETYPE=zip
-#@ID=p21_bill
+# @VERSION=1.2
+# @VIEWNAME=p21import_test
+# @MIMETYPE=zip
+# @ID=p21import
 """
 Script to verify and import p21 data into AKTIN DWH
 
@@ -33,6 +33,7 @@ import sqlalchemy as db
 import hashlib
 import base64
 import re
+import psycopg2
 import traceback
 from datetime import datetime
 import shutil
@@ -42,6 +43,7 @@ import shutil
 VERIFY FILE
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 """
+
 
 def verify_file(path_zip):
     """
@@ -77,6 +79,7 @@ def verify_file(path_zip):
         engine.dispose()
         remove_tmp_folder(path_zip)
 
+
 def check_file_path_integrity(path_zip):
     """
     Checks, if file of given path exists and is a zip-file.
@@ -101,6 +104,7 @@ def check_file_path_integrity(path_zip):
     if not zipfile.is_zipfile(path_zip):
         raise SystemExit('file is not a zipfile')
 
+
 def prepare_import_folder(path_folder):
     """
     Renames all files and columns of csv files in folder to lowercase. Raises
@@ -120,6 +124,7 @@ def prepare_import_folder(path_folder):
     check_csv_names(path_folder)
     rename_csv_columns_to_lowercase(path_folder)
     check_csv_columns(path_folder)
+
 
 def create_tmp_folder(path_zip):
     """
@@ -143,6 +148,7 @@ def create_tmp_folder(path_zip):
         os.makedirs(path_tmp_folder)
     return path_tmp_folder
 
+
 def remove_tmp_folder(path_zip):
     """
     Removes (recursively) from the same folder as the given path to zip file a
@@ -163,6 +169,7 @@ def remove_tmp_folder(path_zip):
     if os.path.isdir(path_tmp_folder):
         shutil.rmtree(path_tmp_folder)
 
+
 def extract_zip_to_folder(path_zip, path_target):
     """
     Extracts a zip-file from given path to another given location
@@ -182,6 +189,7 @@ def extract_zip_to_folder(path_zip, path_target):
     with zipfile.ZipFile(path_zip, 'r') as file_zip:
         file_zip.extractall(path_target)
 
+
 def rename_files_to_lowercase(path_folder):
     """
     Renames all files inside given folder to lowercase.
@@ -199,6 +207,7 @@ def rename_files_to_lowercase(path_folder):
     list_files_dir = [file for file in os.listdir(path_folder) if os.path.isfile(os.path.join(path_folder, file))]
     for file in list_files_dir:
         os.rename(os.path.sep.join([path_folder, file]), os.path.sep.join([path_folder, file.lower()]))
+
 
 def check_csv_names(path_csv_folder):
     """
@@ -228,6 +237,7 @@ def check_csv_names(path_csv_folder):
     if set_matched_csv != set_required_csv:
         print('following csv could not be found in zip: {0}'.format(set_required_csv.difference(set_matched_csv)))
 
+
 def rename_csv_columns_to_lowercase(path_csv_folder):
     """
     Renames all columns of p21 csv files in given folder to lowercase.
@@ -252,7 +262,7 @@ def rename_csv_columns_to_lowercase(path_csv_folder):
         encoding = get_csv_encoding(path_csv)
         df = pd.read_csv(path_csv, nrows=0, index_col=None, sep=CSV_SEPARATOR, encoding=encoding, dtype=str)
         df.rename(columns=str.lower, inplace=True)
-        if(name_csv == 'icd.csv'):
+        if (name_csv == 'icd.csv'):
             df = add_term_to_ICD_columns(df)
         header_row = ';'.join(df.columns) + '\n'
         with open(path_csv, 'r+', encoding=encoding) as f1, open(path_tmp, 'w+', encoding=encoding) as f2:
@@ -261,6 +271,7 @@ def rename_csv_columns_to_lowercase(path_csv_folder):
             shutil.copyfileobj(f1, f2)
         os.remove(path_csv)
         os.rename(path_tmp, path_csv)
+
 
 def add_term_to_ICD_columns(df_icd):
     """
@@ -287,16 +298,17 @@ def add_term_to_ICD_columns(df_icd):
     """
     index = df_icd.columns.get_loc('sekundär-kode')
     array_bool = df_icd.columns[index:].str.match('^lokalisation(\.)?(\d*)?$')
-    if(sum(array_bool) == 1):
-        df_icd.rename(columns={df_icd.columns[index:][array_bool][0]:'sekundär-lokalisation'}, inplace=True)
-    elif(sum(array_bool) > 1):
+    if (sum(array_bool) == 1):
+        df_icd.rename(columns={df_icd.columns[index:][array_bool][0]: 'sekundär-lokalisation'}, inplace=True)
+    elif (sum(array_bool) > 1):
         raise SystemExit('duplicate column for sekundär-lokalisation')
     array_bool = df_icd.columns[index:].str.match('^diagnosensicherheit(\.)?(\d*)?$')
-    if(sum(array_bool) == 1):
-        df_icd.rename(columns={df_icd.columns[index:][array_bool][0]:'sekundär-diagnosensicherheit'}, inplace=True)
-    elif(sum(array_bool) > 1):
+    if (sum(array_bool) == 1):
+        df_icd.rename(columns={df_icd.columns[index:][array_bool][0]: 'sekundär-diagnosensicherheit'}, inplace=True)
+    elif (sum(array_bool) > 1):
         raise SystemExit('duplicate column for sekundär-diagnosensicherheit')
     return df_icd
+
 
 def check_csv_columns(path_csv_folder):
     """
@@ -328,6 +340,7 @@ def check_csv_columns(path_csv_folder):
         if set_matched_columns != set_required_columns:
             raise SystemExit('following columns are missing in {0}: {1}'.format(name_csv, set_required_columns.difference(set_matched_columns)))
 
+
 def get_valid_FALL_encounter_ids(path_csv_folder):
     """
     Checks all columns in fall.csv for formatting requirements and returns a
@@ -356,6 +369,7 @@ def get_valid_FALL_encounter_ids(path_csv_folder):
         raise SystemExit('no valid encounter found in fall.csv')
     return list_valid_FALL_encounter
 
+
 def get_valid_encounter_ids(path_csv):
     """
     Iterates in chunks trough a given csv-file and checks each column in chunk
@@ -381,6 +395,7 @@ def get_valid_encounter_ids(path_csv):
             chunk = clear_invalid_fields_in_chunk(chunk, column);
         set_valid_enc.update(chunk['kh-internes-kennzeichen'].unique())
     return list(set_valid_enc)
+
 
 def clear_invalid_fields_in_chunk(chunk, column):
     """
@@ -411,8 +426,9 @@ def clear_invalid_fields_in_chunk(chunk, column):
         else:
             chunk = chunk.drop(indeces_wrong_syntax)
     if len(indeces_empty_fields) and column in LIST_P21_COLUMN_MANDATORY:
-            chunk = chunk.drop(indeces_empty_fields)
+        chunk = chunk.drop(indeces_empty_fields)
     return chunk
+
 
 def get_matched_FALL_encounter_ids(engine, connection, list_FALL_encounter):
     """
@@ -444,6 +460,7 @@ def get_matched_FALL_encounter_ids(engine, connection, list_FALL_encounter):
         raise SystemExit('no encounter in fall.csv could be matched with database')
     return list_matched_FALL_encounter
 
+
 def get_matched_encounter_ids(engine, connection, list_encounter):
     """
     Matches a given list of encounter ids against optin encounters in
@@ -465,9 +482,10 @@ def get_matched_encounter_ids(engine, connection, list_encounter):
 
     """
     df_db_enc = get_AKTIN_optin_encounter_df(engine, connection)
-    list_db_ide = df_db_enc['tval_char'].tolist()
+    list_db_ide = df_db_enc['encounter_ide'].tolist()
     list_enc_ide = anonymize_enc_list(list_encounter)
     return list(set(list_enc_ide).intersection(set(list_db_ide)))
+
 
 def get_AKTIN_optin_encounter_df(engine, connection):
     """
@@ -491,18 +509,15 @@ def get_AKTIN_optin_encounter_df(engine, connection):
         for AKTIN study and corresponding encounter_num and patient_num
 
     """
-    fact = db.Table('observation_fact', db.MetaData(), autoload_with=engine)
+    enc = db.Table('encounter_mapping', db.MetaData(), autoload_with=engine)
     pat = db.Table('patient_mapping', db.MetaData(), autoload_with=engine)
     opt = db.Table('optinout_patients', db.MetaData(), autoload_with=engine)
-
-    query = db.select([fact.c['tval_char'], fact.c['encounter_num'], fact.c['patient_num']]) \
-    .select_from(fact.join(pat, fact.c['patient_num'] == pat.c['patient_num'])
-                 .join(opt, pat.c['patient_ide'] == opt.c['pat_psn'], isouter=True)) \
-    .where(db.and_( \
-                   db.or_(opt.c['study_id'] != 'AKTIN', opt.c['pat_psn'].is_(None)), \
-                   fact.c['concept_cd'] == 'AKTIN:Fallkennzeichen'))
+    query = db.select([enc.c['encounter_ide'], enc.c['encounter_num'], pat.c['patient_num']]).select_from(
+        enc.join(pat, enc.c['patient_ide'] == pat.c['patient_ide']).join(opt, pat.c['patient_ide'] == opt.c['pat_psn'], isouter=True)).where(
+        db.or_(opt.c['study_id'] != 'AKTIN', opt.c['pat_psn'].is_(None)))
     df_result = stream_query_into_df(connection, query)
     return df_result
+
 
 def stream_query_into_df(connection, query):
     """
@@ -533,8 +548,11 @@ def stream_query_into_df(connection, query):
             df_result = pd.DataFrame(chunk)
         else:
             df_result = df_result.append(chunk, ignore_index=True)
+    print(df_result.empty)
+    print(df_result)
     df_result.columns = result.keys()
     return df_result
+
 
 def count_total_FALL_encounter(path_csv_folder):
     """
@@ -555,6 +573,7 @@ def count_total_FALL_encounter(path_csv_folder):
     path_csv_FALL = os.path.join(path_csv_folder, 'fall.csv')
     return count_csv_rows(path_csv_FALL)
 
+
 def count_csv_rows(path_csv):
     """
     Counts the rows of a given csv file (excluding header)
@@ -572,7 +591,8 @@ def count_csv_rows(path_csv):
     """
     with open(path_csv, encoding=get_csv_encoding(path_csv)) as csv:
         total = sum(1 for row in csv)
-    return total-1
+    return total - 1
+
 
 def print_verification_results(num_total, list_valid, list_matched):
     """
@@ -596,11 +616,13 @@ def print_verification_results(num_total, list_valid, list_matched):
     print('Fälle valide: %d' % len(list_valid))
     print('Valide Fälle gematcht mit Datenbank: %d' % len(list_matched))
 
+
 """
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 IMPORT FILE
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 """
+
 
 def import_file(path_zip):
     """
@@ -634,17 +656,18 @@ def import_file(path_zip):
             list_valid_encounter = get_valid_FALL_encounter_ids(path_tmp_folder)
             df_match = get_database_matched_encounter_df(engine, connection, list_valid_encounter)
             table_observation = db.Table('observation_fact', db.MetaData(), autoload_with=engine)
+
             for name_csv in DICT_P21_COLUMNS.keys():
                 path_csv = os.path.sep.join([path_tmp_folder, name_csv])
                 if not os.path.isfile(path_csv): continue
                 map_num_instances = {}
                 for chunk in pd.read_csv(path_csv, chunksize=CSV_CHUNKSIZE, sep=CSV_SEPARATOR, encoding=get_csv_encoding(path_csv), dtype=str):
                     chunk = chunk[chunk['kh-internes-kennzeichen'].isin(df_match['encounter_id'])]
+                    if chunk.empty:
+                        continue
                     chunk = chunk[DICT_P21_COLUMNS[name_csv]].fillna('')
                     for column in DICT_P21_COLUMNS[name_csv]:
                         chunk = clear_invalid_fields_in_chunk(chunk, column)
-                    if chunk.empty:
-                        continue
                     list_encounter_data_upload = []
                     for row_chunk in chunk.iterrows():
                         list_row_upload = []
@@ -679,6 +702,7 @@ def import_file(path_zip):
         engine.dispose()
         remove_tmp_folder(path_zip)
 
+
 def get_database_matched_encounter_df(engine, connection, list_encounter):
     """
     Compares list of encounter ids with optin encounter ids of
@@ -705,11 +729,12 @@ def get_database_matched_encounter_df(engine, connection, list_encounter):
     """
     df_db_enc = get_AKTIN_optin_encounter_df(engine, connection)
     list_enc_ide = anonymize_enc_list(list_encounter)
-    df_enc_ide = pd.DataFrame(list(zip(list_encounter, list_enc_ide)), columns=['encounter_id', 'tval_char'])
-    df_merged = pd.merge(df_db_enc, df_enc_ide, on=['tval_char'])
-    df_merged = df_merged.drop(['tval_char'], axis=1)
+    df_enc_ide = pd.DataFrame(list(zip(list_encounter, list_enc_ide)), columns=['encounter_id', 'encounter_ide'])
+    df_merged = pd.merge(df_db_enc, df_enc_ide, on=['encounter_ide'])
+    df_merged = df_merged.drop(['encounter_ide'], axis=1)
     df_merged['aufnahmedatum'] = ''
     return df_merged
+
 
 def get_enc_nums_from_df(id_encounter, df_match):
     """
@@ -735,6 +760,7 @@ def get_enc_nums_from_df(id_encounter, df_match):
     num_encounter = int(df_match.loc[df_match['encounter_id'] == id_encounter]['encounter_num'].iloc[0])
     num_patient = int(df_match.loc[df_match['encounter_id'] == id_encounter]['patient_num'].iloc[0])
     return num_encounter, num_patient
+
 
 def insert_upload_data_FALL(row_FALL):
     """
@@ -801,6 +827,7 @@ def insert_upload_data_FALL(row_FALL):
         list_observation_dicts.append(create_row_therapy_end_poststation(row_FALL['behandlungsende-nachstationär'], row_FALL['behandlungstage-nachstationär']))
     return list_observation_dicts
 
+
 def create_rows_admission(cause, reason):
     """
     Creates observation_fact rows for encounter admission. Cause and reason
@@ -824,6 +851,7 @@ def create_rows_admission(cause, reason):
     return [{'concept_cd': concept_cause, 'modifier_cd': '@', 'valtype_cd': '@', 'valueflag_cd': '@'},
             {'concept_cd': concept_reason, 'modifier_cd': '@', 'valtype_cd': '@', 'valueflag_cd': '@'}]
 
+
 def create_row_insurance(insurance):
     """
     Creates observation_fact row for insurance number of encounter
@@ -840,6 +868,7 @@ def create_row_insurance(insurance):
 
     """
     return {'concept_cd': 'AKTIN:IKNR', 'modifier_cd': '@', 'valtype_cd': 'T', 'tval_char': insurance}
+
 
 def create_rows_birthyear(birthyear, date_admission):
     """
@@ -863,6 +892,7 @@ def create_rows_birthyear(birthyear, date_admission):
     return [{'concept_cd': 'LOINC:80904-6', 'modifier_cd': '@', 'valtype_cd': 'N', 'nval_num': birthyear, 'units_cd': 'yyyy'},
             {'concept_cd': 'LOINC:80904-6', 'modifier_cd': 'effectiveTime', 'valtype_cd': 'T', 'tval_char': date_admission}]
 
+
 def create_row_sex(sex):
     """
     Creates observation_fact row for sex of encounter patient. Patient sex isa
@@ -882,6 +912,7 @@ def create_row_sex(sex):
     concept_sex = ':'.join(['P21:SEX', str.upper(sex)])
     return {'concept_cd': concept_sex, 'modifier_cd': '@', 'valtype_cd': '@', 'valueflag_cd': '@'}
 
+
 def create_row_zipcode(zipcode):
     """
     Creates observation_fact row for zipcode of encounter patient
@@ -898,6 +929,7 @@ def create_row_zipcode(zipcode):
 
     """
     return {'concept_cd': 'AKTIN:ZIPCODE', 'modifier_cd': '@', 'valtype_cd': 'T', 'tval_char': zipcode}
+
 
 def create_row_encounter_merge(reason):
     """
@@ -918,6 +950,7 @@ def create_row_encounter_merge(reason):
     concept_merge = ':'.join(['P21:MERGE', str.upper(reason)])
     return {'concept_cd': concept_merge, 'modifier_cd': '@', 'valtype_cd': '@', 'valueflag_cd': '@'}
 
+
 def create_row_critical_care(intensive):
     """
     Creates observation_fact row for stayed duration in critical care of
@@ -934,8 +967,9 @@ def create_row_critical_care(intensive):
        Observation_fact row for duration in critical care
 
     """
-    intensive = intensive.replace(',','.')
+    intensive = intensive.replace(',', '.')
     return {'concept_cd': 'P21:DCC', 'modifier_cd': '@', 'valtype_cd': 'N', 'nval_num': intensive, 'units_cd': 'd'}
+
 
 def create_row_discharge(date_end, reason):
     """
@@ -959,6 +993,7 @@ def create_row_discharge(date_end, reason):
     concept_reason = ':'.join(['P21:DISR', str.upper(reason)])
     return {'concept_cd': concept_reason, 'start_date': date_end, 'modifier_cd': '@', 'valtype_cd': '@', 'valueflag_cd': '@'}
 
+
 def create_row_ventilation(ventilation):
     """
     Creates observation_fact row for duration of respiratory ventilation of
@@ -975,8 +1010,9 @@ def create_row_ventilation(ventilation):
         Observation_fact row for duration of ventilation
 
     """
-    ventilation = ventilation.replace(',','.')
+    ventilation = ventilation.replace(',', '.')
     return {'concept_cd': 'P21:DV', 'modifier_cd': '@', 'valtype_cd': 'N', 'nval_num': ventilation, 'units_cd': 'h'}
+
 
 def create_row_therapy_start_prestation(date_start, days):
     """
@@ -1005,6 +1041,7 @@ def create_row_therapy_start_prestation(date_start, days):
         result = {'concept_cd': 'P21:PREADM', 'start_date': date_start, 'modifier_cd': '@', 'valtype_cd': '@', 'valueflag_cd': '@'}
     return result
 
+
 def create_row_therapy_end_poststation(date_end, days):
     """
     Creates observation_fact rows for poststaionary therapy end of encounter.
@@ -1032,6 +1069,7 @@ def create_row_therapy_end_poststation(date_end, days):
         result = {'concept_cd': 'P21:POSTDIS', 'start_date': date_end, 'modifier_cd': '@', 'valtype_cd': '@', 'valueflag_cd': '@'}
     return result
 
+
 def insert_upload_data_fab(row, map_num_instances):
     """
     Converts p21 variables from fab.csv of given row into a list of
@@ -1057,6 +1095,7 @@ def insert_upload_data_fab(row, map_num_instances):
     map_num_instances = count_instance_num(row, map_num_instances)
     num_instance = map_num_instances.get(row['kh-internes-kennzeichen'])
     return create_row_department(num_instance, row['fachabteilung'], row['kennung-intensivbett'], row['fab-aufnahmedatum'], row['fab-entlassungsdatum']), map_num_instances
+
 
 def create_row_department(num_instance, department, intensive, date_start, date_end):
     """
@@ -1089,6 +1128,7 @@ def create_row_department(num_instance, department, intensive, date_start, date_
     concept_dep = 'P21:DEP:CC' if intensive == 'J' else 'P21:DEP'
     return [{'concept_cd': concept_dep, 'start_date': date_start, 'modifier_cd': '@', 'instance_num': num_instance, 'valtype_cd': 'T', 'tval_char': department, 'end_date': date_end}]
 
+
 def insert_upload_data_ops(row, map_num_instances):
     """
     Converts p21 variables from ops.csv of given row into a list of
@@ -1114,6 +1154,7 @@ def insert_upload_data_ops(row, map_num_instances):
     map_num_instances = count_instance_num(row, map_num_instances)
     num_instance = map_num_instances.get(row['kh-internes-kennzeichen'])
     return create_rows_ops(num_instance, row['ops-kode'], row['ops-version'], row['lokalisation'], row['ops-datum']), map_num_instances
+
 
 def create_rows_ops(num_instance, code_ops, version, localisation, date_ops):
     """
@@ -1149,6 +1190,7 @@ def create_rows_ops(num_instance, code_ops, version, localisation, date_ops):
         result.append({'concept_cd': concept_ops, 'start_date': date_ops, 'modifier_cd': 'localisation', 'instance_num': num_instance, 'valtype_cd': 'T', 'tval_char': localisation})
     return result
 
+
 def insert_upload_data_icd(row, date_admission, map_num_instances):
     """
     Converts p21 variables from icd.csv of given row into a list of
@@ -1180,6 +1222,7 @@ def insert_upload_data_icd(row, date_admission, map_num_instances):
     num_instance = map_num_instances.get(row['kh-internes-kennzeichen'])
     list_observation_dicts.extend(create_row_icd_sek(num_instance, row['sekundär-kode'], row['icd-kode'], row['icd-version'], row['sekundär-lokalisation'], row['sekundär-diagnosensicherheit'], date_admission)) if row['sekundär-kode'] else None
     return list_observation_dicts, map_num_instances
+
 
 def create_rows_icd(num_instance, code_icd, diag_type, version, localisation, certainty, date_adm):
     """
@@ -1222,6 +1265,7 @@ def create_rows_icd(num_instance, code_icd, diag_type, version, localisation, ce
         result.append({'concept_cd': concept_icd, 'modifier_cd': 'certainty', 'instance_num': num_instance, 'valtype_cd': 'T', 'tval_char': certainty})
     return result
 
+
 def create_row_icd_sek(num_instance, code_icd, code_parent, version, localisation, certainty, date_adm):
     """
     Creates observation_fact rows for a Sekundärdiagnose of an encounter.
@@ -1258,6 +1302,7 @@ def create_row_icd_sek(num_instance, code_icd, code_parent, version, localisatio
     result.append({'concept_cd': concept_icd, 'modifier_cd': 'sdFrom', 'instance_num': num_instance, 'valtype_cd': 'T', 'tval_char': concept_parent})
     return result
 
+
 def count_instance_num(row, map_num_instances):
     """
     Keeps track of reappearing encounter data. Enumerates instance number if
@@ -1283,6 +1328,7 @@ def count_instance_num(row, map_num_instances):
         map_num_instances[row['kh-internes-kennzeichen']] += 1
     return map_num_instances
 
+
 def create_script_rows():
     """
     Creates observation_fact rows for script metadata (input from environment
@@ -1298,6 +1344,7 @@ def create_script_rows():
     return [{'concept_cd': 'P21:SCRIPT', 'modifier_cd': '@', 'valtype_cd': '@', 'valueflag_cd': '@'},
             {'concept_cd': 'P21:SCRIPT', 'modifier_cd': 'scriptVer', 'valtype_cd': 'T', 'tval_char': SCRIPT_VERSION},
             {'concept_cd': 'P21:SCRIPT', 'modifier_cd': 'scriptId', 'valtype_cd': 'T', 'tval_char': SCRIPT_ID}]
+
 
 def add_fixed_values(dict_row, num_enc, num_pat, date_adm):
     """
@@ -1349,6 +1396,7 @@ def add_fixed_values(dict_row, num_enc, num_pat, date_adm):
     dict_row['sourcesystem_cd'] = CODE_SOURCE
     return dict_row
 
+
 def check_if_encounter_is_imported(connection, table_obs, num_enc):
     """
     Runs a query to check if this script was already used to upload p21 data
@@ -1379,13 +1427,14 @@ def check_if_encounter_is_imported(connection, table_obs, num_enc):
         .where(table_obs.c['concept_cd'] == 'P21:SCRIPT') \
         .where(table_obs.c['modifier_cd'] == 'scriptId') \
         .where(table_obs.c['tval_char'] == SCRIPT_ID)
-    #SELECT observation_fact.sourcesystem_cd FROM observation_fact WHERE observation_fact.encounter_num = %(encounter_num_1)s AND observation_fact.concept_cd = %(concept_cd_1)s AND observation_fact.modifier_cd = %(modifier_cd_1)s AND observation_fact.tval_char = %(tval_char_1)s
+    # SELECT observation_fact.sourcesystem_cd FROM observation_fact WHERE observation_fact.encounter_num = %(encounter_num_1)s AND observation_fact.concept_cd = %(concept_cd_1)s AND observation_fact.modifier_cd = %(modifier_cd_1)s AND observation_fact.tval_char = %(tval_char_1)s
     result = connection.execute(query).fetchall()
     if result:
         if len(result) != 1:
             raise SystemExit('multiple sourcesystems for encounter found')
         return True
     return False
+
 
 def delete_encounter_data(connection, table_obs, num_enc):
     """
@@ -1429,7 +1478,7 @@ def delete_encounter_data(connection, table_obs, num_enc):
         .where(table_obs.c['concept_cd'] == 'P21:SCRIPT') \
         .where(table_obs.c['modifier_cd'] == 'scriptId') \
         .where(table_obs.c['tval_char'] == SCRIPT_ID)
-    #SELECT observation_fact.sourcesystem_cd FROM observation_fact WHERE observation_fact.encounter_num = %(encounter_num_1)s AND observation_fact.concept_cd = %(concept_cd_1)s AND observation_fact.modifier_cd = %(modifier_cd_1)s AND observation_fact.tval_char = %(tval_char_1)s
+    # SELECT observation_fact.sourcesystem_cd FROM observation_fact WHERE observation_fact.encounter_num = %(encounter_num_1)s AND observation_fact.concept_cd = %(concept_cd_1)s AND observation_fact.modifier_cd = %(modifier_cd_1)s AND observation_fact.tval_char = %(tval_char_1)s
     result = connection.execute(query).fetchall()
     if result:
         if len(result) != 1:
@@ -1438,7 +1487,7 @@ def delete_encounter_data(connection, table_obs, num_enc):
         statement_delete = table_obs.delete() \
             .where(table_obs.c['encounter_num'] == str(num_enc)) \
             .where(table_obs.c['sourcesystem_cd'] == sourcesystem_cd)
-        #DELETE FROM observation_fact WHERE observation_fact.encounter_num = %(encounter_num_1)s AND observation_fact.sourcesystem_cd = %(sourcesystem_cd_1)s
+        # DELETE FROM observation_fact WHERE observation_fact.encounter_num = %(encounter_num_1)s AND observation_fact.sourcesystem_cd = %(sourcesystem_cd_1)s
         transaction = connection.begin()
         try:
             connection.execute(statement_delete)
@@ -1450,6 +1499,7 @@ def delete_encounter_data(connection, table_obs, num_enc):
     else:
         global num_cases_new
         num_cases_new = num_cases_new + 1
+
 
 def upload_encounter_data(connection, table_obs, list_dict):
     """
@@ -1485,6 +1535,7 @@ def upload_encounter_data(connection, table_obs, list_dict):
         traceback.print_exc()
         raise SystemExit('insert operation for encounter failed')
 
+
 def print_import_results(num_imports, num_updates):
     """
     Prints import summary about new imported encounter and updated encounter
@@ -1506,11 +1557,13 @@ def print_import_results(num_imports, num_updates):
     print('Neue Fälle hochgeladen: %d' % num_imports)
     print('Bestehende Fälle aktualisiert: %d' % num_updates)
 
+
 """
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 MISC
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 """
+
 
 def get_csv_encoding(path_csv):
     """
@@ -1530,6 +1583,7 @@ def get_csv_encoding(path_csv):
     """
     return chardet.detect(open(path_csv, 'rb').read(CSV_BYTES_CHECK_ENCODER))['encoding']
 
+
 def get_db_engine():
     """
     Extracts connection path (format: HOST:PORT/DB) out of given connection-url
@@ -1545,6 +1599,7 @@ def get_db_engine():
     pattern = 'jdbc:postgresql://(.*?)(\?searchPath=.*)?$'
     connection = re.search(pattern, I2B2_CONNECTION_URL).group(1)
     return db.create_engine('postgresql+psycopg2://{0}:{1}@{2}'.format(USERNAME, PASSWORD, connection))
+
 
 def get_aktin_property(property_aktin):
     """
@@ -1567,9 +1622,10 @@ def get_aktin_property(property_aktin):
         for line in properties:
             if '=' in line:
                 key, value = line.split('=', 1)
-                if(key == property_aktin):
+                if (key == property_aktin):
                     return value.strip()
         return ''
+
 
 def anonymize_enc_list(list_enc):
     """
@@ -1588,10 +1644,11 @@ def anonymize_enc_list(list_enc):
         List with hashed encounter ids
 
     """
-    root = get_aktin_property('cda.billing.root.preset')
+    root = get_aktin_property('cda.encounter.root.preset')
     salt = get_aktin_property('pseudonym.salt')
     alg = get_aktin_property('pseudonym.algorithm')
     return [one_way_anonymizer(alg, root, enc, salt) for enc in list_enc]
+
 
 def one_way_anonymizer(name_alg, root, extension, salt):
     """
@@ -1623,6 +1680,7 @@ def one_way_anonymizer(name_alg, root, extension, salt):
     alg.update(buffer)
     return base64.urlsafe_b64encode(alg.digest()).decode('UTF-8')
 
+
 def convert_crypto_alg_name(name_alg):
     """
     Converts given name of java cryptograhpic hash function to python demanted
@@ -1642,7 +1700,8 @@ def convert_crypto_alg_name(name_alg):
         Converted name of hash function
 
     """
-    return str.lower(name_alg.replace('-','',).replace('/','_'))
+    return str.lower(name_alg.replace('-', '', ).replace('/', '_'))
+
 
 def convert_date_to_i2b2_format(date):
     """
@@ -1660,7 +1719,8 @@ def convert_date_to_i2b2_format(date):
         Date in format %Y-%m-%d %H:%M
 
     """
-    return datetime.strptime(str(date),'%Y%m%d%H%M').strftime('%Y-%m-%d %H:%M')
+    return datetime.strptime(str(date), '%Y%m%d%H%M').strftime('%Y-%m-%d %H:%M')
+
 
 def convert_icd_code_to_i2b2_format(code_icd):
     """
@@ -1688,6 +1748,7 @@ def convert_icd_code_to_i2b2_format(code_icd):
     if len(code_icd) > 3:
         code_icd = ''.join([code_icd[:3], '.', code_icd[3:]] if code_icd[3] != '.' else code_icd)
     return code_icd
+
 
 def convert_ops_code_to_i2b2_format(code_ops):
     """
@@ -1721,6 +1782,7 @@ def convert_ops_code_to_i2b2_format(code_ops):
         code_ops = ''.join([code_ops[:5], '.', code_ops[5:]] if code_ops[5] != '.' else code_ops)
     return code_ops
 
+
 """
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 MAIN
@@ -1728,7 +1790,6 @@ MAIN
 """
 
 if __name__ == '__main__':
-
     # required file names in zip-file and required columns for each file
     DICT_P21_COLUMNS = {
         'fall.csv': ['kh-internes-kennzeichen', 'ik-der-krankenkasse', 'geburtsjahr', 'geschlecht', 'plz', 'aufnahmedatum',
@@ -1800,21 +1861,19 @@ if __name__ == '__main__':
     CSV_CHUNKSIZE = 10000
     DB_CHUNKSIZE = 10000
 
-    USERNAME = os.environ['username']
-    PASSWORD = os.environ['password']
-    I2B2_CONNECTION_URL = os.environ['connection-url']
-    ZIP_UUID = os.environ['uuid']
-    SCRIPT_ID = os.environ['script_id']
-    SCRIPT_VERSION = os.environ['script_version']
-    PATH_AKTIN_PROPERTIES = os.environ['path_aktin_properties']
-    CODE_SOURCE = '_'.join([SCRIPT_ID, ZIP_UUID])
+    USERNAME = 'i2b2crcdata'
+    PASSWORD = 'demouser'
+    I2B2_CONNECTION_URL = 'jdbc:postgresql://localhost:5432/i2b2?searchPath=i2b2crcdata'
+    ZIP_UUID = '3fc5b451-3333-1245-1134-a70bfc58fd1f'
+    SCRIPT_ID = 'p21import'
+    SCRIPT_VERSION = '1.2'
+    PATH_AKTIN_PROPERTIES = r'C:\Users\User\IdeaProjects\dwh-setup\dwh-update\src\main\scripts\aktin.properties'
+    CODE_SOURCE = '_'.join(['i', SCRIPT_ID, ZIP_UUID])
 
-    if len(sys.argv) != 3:
-        raise SystemExit("sys.argv don't match")
+    PATH_P21 = r'C:\Users\User\PycharmProjects\p21-script\test\resources\p21_verification.zip'
 
-    if sys.argv[1] == 'verify_file':
-        verify_file(sys.argv[2])
-    elif sys.argv[1] == 'import_file':
-        import_file(sys.argv[2])
-    else:
-        raise SystemExit("unknown method function")
+    import time
+
+    start_time = time.time()
+    import_file(PATH_P21)
+    print("--- %s seconds ---" % (time.time() - start_time))

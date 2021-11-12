@@ -1,0 +1,152 @@
+@startuml
+'https://plantuml.com/class-diagram
+
+class ZipFileExtractor {
+* checks integrity of given zip file path
+* extracts zip file to given folder
+}
+class TmpFolderManager {
+* creates/deletes a folder named 'tmp' in given folder
+* renames all files inside 'tmp'-folder to lowercase
+}
+abstract class CSVReader {
+* contains configuration variables for reading csv files
+* gets the encoding of a csv file
+}
+abstract class CSVPreprocessor {
+* preprocesses a csv file to adapt it for verification/import
+** column names are lowercased
+** dashes in names are removed
+}
+class FALLPreprocessor {
+}
+class FABPreprocessor {
+}
+class ICDPreprocessor {
+* adds columns for secondary diagnoses, if not found in csv
+}
+class OPSPreprocessor {
+}
+abstract class CSVFileVerifier {
+* checks integrity of given csv file with p21 requirements
+** checks existence of csv file
+** checks existence of required columns
+** finds rows, where all columns fulfill p21 requirements
+}
+class FALLVerifier {
+* exits script if any check fails
+}
+class FABVerifier {
+}
+class ICDVerifier {
+}
+class OPSVerifier {
+}
+abstract class CSVObservationFactConverter {
+* converts a row from a csv file to a list of
+observation facts
+}
+class FALLObservationFactConverter {
+}
+class FABObservationFactConverter {
+}
+class ICDObservationFactConverter {
+}
+class OPSObservationFactConverter {
+}
+class ObservationFactInstanceCounter {
+* keeps track of reappearing encounters in csv
+}
+abstract class DatabaseConnection {
+* creates/closes connection to database with
+configuration from environment vars
+}
+abstract class DatabaseExtractor {
+* helper methods to stream data from database
+into a dataframe
+}
+class EncounterInfoExtractorByEncounterId {
+* extracts hashed encounter_id, encounter_num and
+patient_num for optin encounter from database
+}
+class EncounterInfoExtractorByBillingId {
+* extracts hashed billing_id, encounter_num and
+patient_num for optin encounter from database
+}
+class DatabaseEncounterMatcher {
+* matches a given list of unhashed ids from csv
+with ids in database
+}
+class AktinPropertiesReader {
+* gets the value for given key from
+aktin.properties
+}
+class OneWayAnonymizer {
+* hashes an id or a list
+of ids
+}
+abstract class TableHandler {
+* interface methods to upload/delete data from
+table in database
+}
+class ObservationFactTableHandler {
+* uploads/deletes data from i2b2crcdata.observation_fact
+* checks if data for encounter was already uploaded
+by this script
+}
+abstract class CSVObservationFactUploadManager {
+* uploads a given csv as observation facts to database
+}
+class FALLObservationFactUploadManager {
+* deletes existing encounter data from database prior
+upload
+* adds script information to uploaded encounter data
+}
+class FABObservationFactUploadManager {
+}
+class ICDObservationFactUploadManager{
+}
+class OPSObservationFactUploadManager{
+}
+
+CSVReader <|-- CSVPreprocessor
+CSVPreprocessor <|-- FALLPreprocessor
+CSVPreprocessor <|-- FABPreprocessor
+CSVPreprocessor <|-- ICDPreprocessor
+CSVPreprocessor <|-- OPSPreprocessor
+
+CSVReader <|-- CSVFileVerifier
+CSVFileVerifier <|-- FALLVerifier
+CSVFileVerifier <|-- FABVerifier
+CSVFileVerifier <|-- ICDVerifier
+CSVFileVerifier <|-- OPSVerifier
+
+CSVObservationFactConverter <|-- FALLObservationFactConverter
+CSVObservationFactConverter <|-- FABObservationFactConverter
+CSVObservationFactConverter <|-- ICDObservationFactConverter
+CSVObservationFactConverter <|-- OPSObservationFactConverter
+
+ObservationFactInstanceCounter <-- FABObservationFactConverter
+ObservationFactInstanceCounter <-- ICDObservationFactConverter
+ObservationFactInstanceCounter <-- OPSObservationFactConverter
+
+DatabaseConnection <|-- DatabaseExtractor
+DatabaseExtractor <|-- EncounterInfoExtractorByEncounterId
+DatabaseExtractor <|-- EncounterInfoExtractorByBillingId
+
+DatabaseExtractor <-- DatabaseEncounterMatcher
+AktinPropertiesReader <-- DatabaseEncounterMatcher
+OneWayAnonymizer <-- DatabaseEncounterMatcher
+
+DatabaseConnection <|-- TableHandler
+TableHandler <|-- ObservationFactTableHandler
+
+ObservationFactTableHandler <-- CSVObservationFactUploadManager
+CSVObservationFactConverter <-- CSVObservationFactUploadManager
+CSVFileVerifier <-- CSVObservationFactUploadManager
+
+CSVObservationFactUploadManager <|-- FALLObservationFactUploadManager
+CSVObservationFactUploadManager <|-- FABObservationFactUploadManager
+CSVObservationFactUploadManager <|-- ICDObservationFactUploadManager
+CSVObservationFactUploadManager <|-- OPSObservationFactUploadManager
+@enduml

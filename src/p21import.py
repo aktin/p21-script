@@ -1,0 +1,1146 @@
+# -*- coding: utf-8 -*
+
+"""
+Created on Wed Jan 20 11:36:55 2021
+@author: akombeiz
+"""
+# @VERSION=1.5
+# @VIEWNAME=P21-Importskript
+# @MIMETYPE=zip
+# @ID=p21
+
+import os
+import sys
+import zipfile
+import chardet
+import pandas as pd
+import sqlalchemy as db
+from sqlalchemy import exc
+import hashlib
+import base64
+import re
+import traceback
+import shutil
+from datetime import datetime
+from abc import ABC, abstractmethod
+
+"""
+Script to verify and import p21 data into AKTIN DWH. AKTIN DWH provides path to a zip-file 
+and calls either method verify_file() or import_file() of class P21Importer.
+
+verify_file() checks validity of csv files in given zip-file regarding p21 requirements and matches
+valid encounter in fall.csv with encounters in database. Matching with database is done by the 
+billing_id. If no encounter with a billing_id is found, matching is done using the encounter_id.
+Prints matching results in console.
+
+import_file() repeats the first steps for verification and matching done by verify_file(). Then it 
+iterates through matched encounters in fall.csv. All valid fields of valid encounters are uploaded 
+into the i2b2 database as observation facts. Prior uploading each encounter, a check is performed if
+this  encounter was already uploaded using this script and deleted prior upload. After uploading each 
+valid encounter from fall.csv, the script iterate through the optional csv-files (fab,icd,ops)
+and uploads all valid data for valid encounters from fall.csv.
+"""
+
+
+# TODO keep download_date/import_date when updating encounter
+# TODO duplicate print of nonexisting files on import
+
+class P21Importer:
+
+    def __init__(self, path_zip: str):
+        self.ZFE = ZipFileExtractor(path_zip)
+        path_parent = os.path.dirname(path_zip)
+        self.TFM = TmpFolderManager(path_parent)
+
+    def __extract_and_rename_zip_content(self) -> str:
+        path_tmp = self.TFM.create_tmp_folder()
+        self.ZFE.extract_zip_to_folder(path_tmp)
+        self.TFM.rename_files_in_tmp_folder_to_lowercase()
+        return path_tmp
+
+    def __preprocess_and_check_csv_files(self, path_folder: str):
+        for v, p in [(FALLVerifier, FALLPreprocessor), (FABVerifier, FABPreprocessor), (ICDVerifier, ICDPreprocessor), (OPSVerifier, OPSPreprocessor)]:
+            verifier = v(path_folder)
+            preprocessor = p(path_folder)
+            if verifier.is_csv_in_folder():
+                preprocessor.preprocess()
+                verifier.check_column_names_of_csv()
+
+    def verify_file(self):
+        try:
+            path_tmp = self.__extract_and_rename_zip_content()
+            self.__preprocess_and_check_csv_files(path_tmp)
+            verifier_fall = FALLVerifier(path_tmp)
+            list_valid_ids = verifier_fall.get_unique_ids_of_valid_encounter()
+            try:
+                extractor = EncounterInfoExtractorWithBillingId()
+                matcher = DatabaseEncounterMatcher(extractor)
+                list_matched = matcher.get_matched_list(list_valid_ids)
+            except ValueError:
+                print('matching by billing id failed. trying matching by encounter id...')
+                extractor = EncounterInfoExtractorWithEncounterId()
+                matcher = DatabaseEncounterMatcher(extractor)
+                list_matched = matcher.get_matched_list(list_valid_ids)
+            print('Fälle gesamt: %d' % FALLVerifier(path_tmp).count_total_encounter())
+            print('Fälle valide: %d' % len(list_valid_ids))
+            print('Valide Fälle gematcht mit Datenbank: %d' % len(list_matched))
+        finally:
+            self.TFM.remove_tmp_folder()
+
+    def import_file(self):
+        global num_imports, num_updates
+        try:
+            path_tmp = self.__extract_and_rename_zip_content()
+            self.__preprocess_and_check_csv_files(path_tmp)
+            verifier_fall = FALLVerifier(path_tmp)
+            list_valid_ids = verifier_fall.get_unique_ids_of_valid_encounter()
+            try:
+                extractor = EncounterInfoExtractorWithBillingId()
+                matcher = DatabaseEncounterMatcher(extractor)
+                df_mapping = matcher.get_matched_df(list_valid_ids)
+            except ValueError:
+                print('matching by billing id failed. trying matching by encounter id...')
+                extractor = EncounterInfoExtractorWithEncounterId()
+                matcher = DatabaseEncounterMatcher(extractor)
+                df_mapping = matcher.get_matched_df(list_valid_ids)
+            dict_admission_dates = verifier_fall.get_unique_ids_of_valid_encounter_with_admission_dates()
+            df_admission_dates = pd.DataFrame({'encounter_id': list(dict_admission_dates.keys()), 'aufnahmedatum': list(dict_admission_dates.values())})
+            df_mapping = pd.merge(df_mapping, df_admission_dates, on=['encounter_id'])
+            for u in [FALLObservationFactUploadManager, FABObservationFactUploadManager, ICDObservationFactUploadManager, OPSObservationFactUploadManager]:
+                uploader = u(df_mapping, path_tmp)
+                if uploader.VERIFIER.is_csv_in_folder():
+                    uploader.upload_csv()
+                if isinstance(uploader, FALLObservationFactUploadManager):
+                    num_imports = uploader.NUM_IMPORTS
+                    num_updates = uploader.NUM_UPDATES
+            print('Fälle hochgeladen: %d' % (num_imports + num_updates))
+            print('Neue Fälle hochgeladen: %d' % num_imports)
+            print('Bestehende Fälle aktualisiert: %d' % num_updates)
+        finally:
+            self.TFM.remove_tmp_folder()
+
+
+class ZipFileExtractor:
+
+    def __init__(self, path_zip: str):
+        self.PATH_ZIP = path_zip
+        self.__check_zip_file_integrity()
+
+    def __check_zip_file_integrity(self):
+        if not os.path.exists(self.PATH_ZIP):
+            raise SystemExit('file path is not valid')
+        if not zipfile.is_zipfile(self.PATH_ZIP):
+            raise SystemExit('file is not a zipfile')
+
+    def extract_zip_to_folder(self, path_folder: str):
+        with zipfile.ZipFile(self.PATH_ZIP, 'r') as file_zip:
+            file_zip.extractall(path_folder)
+
+
+class TmpFolderManager:
+    """
+    Creates a temporary folder named tmp where the csv files inside the zip
+    file can be extracted to for preprocessing.
+    Renames all files inside folder tmp to lowercase for case-insensitive
+    processing.
+    """
+
+    def __init__(self, path_folder: str):
+        self.PATH_TMP = os.path.join(path_folder, 'tmp')
+
+    def create_tmp_folder(self) -> str:
+        if not os.path.isdir(self.PATH_TMP):
+            os.makedirs(self.PATH_TMP)
+        return self.PATH_TMP
+
+    def remove_tmp_folder(self):
+        if os.path.isdir(self.PATH_TMP):
+            shutil.rmtree(self.PATH_TMP)
+
+    def rename_files_in_tmp_folder_to_lowercase(self):
+        list_files = self.__get_files_in_tmp_folder()
+        for file in list_files:
+            path_file = os.path.join(self.PATH_TMP, file)
+            path_file_lower = os.path.join(self.PATH_TMP, file.lower())
+            os.rename(path_file, path_file_lower)
+
+    def __get_files_in_tmp_folder(self) -> list:
+        return [file for file in os.listdir(self.PATH_TMP) if os.path.isfile(os.path.join(self.PATH_TMP, file))]
+
+
+class CSVReader(ABC):
+    """
+    Provides configuration for reading a csv file of given path.
+
+    CSV_NAME must be set in implementing classes.
+    """
+
+    SIZE_CHUNKS: int = 10000
+    CSV_SEPARATOR: str = ';'
+    CSV_NAME: str = None
+
+    def __init__(self, path_folder: str):
+        self.PATH_CSV = os.path.join(path_folder, self.CSV_NAME)
+
+    @staticmethod
+    def get_csv_encoding(path_csv: str) -> str:
+        with open(path_csv, 'rb') as csv:
+            encoding = chardet.detect(csv.read(1024))['encoding']
+        return encoding
+
+
+class CSVPreprocessor(CSVReader, ABC):
+    """
+    Preprocesses a given csv file to adjust it to the requirements for
+    CSVFileVerifier/CSVObservationFactConverter/CSVObservationFactUploadManager.
+    """
+
+    def preprocess(self):
+        header = self._get_csv_file_header_in_lowercase()
+        header = self._remove_dashes_from_header(header)
+        header += '\n'
+        self._write_header_to_csv(header)
+
+    def _get_csv_file_header_in_lowercase(self) -> str:
+        df = pd.read_csv(self.PATH_CSV, nrows=0, index_col=None, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(self.PATH_CSV), dtype=str)
+        df.rename(columns=str.lower, inplace=True)
+        return ';'.join(df.columns)
+
+    @staticmethod
+    def _remove_dashes_from_header(header: str) -> str:
+        return header.replace('-', '')
+
+    def _write_header_to_csv(self, header: str):
+        path_parent = os.path.dirname(self.PATH_CSV)
+        path_dummy = os.path.sep.join([path_parent, 'dummy.csv'])
+        encoding = self.get_csv_encoding(self.PATH_CSV)
+        with open(self.PATH_CSV, 'r+', encoding=encoding) as f1, open(path_dummy, 'w+', encoding=encoding) as f2:
+            f1.readline()
+            f2.write(header)
+            shutil.copyfileobj(f1, f2)
+        os.remove(self.PATH_CSV)
+        os.rename(path_dummy, self.PATH_CSV)
+
+
+class FALLPreprocessor(CSVPreprocessor):
+    CSV_NAME = 'fall.csv'
+
+
+class FABPreprocessor(CSVPreprocessor):
+    CSV_NAME = 'fab.csv'
+
+
+class ICDPreprocessor(CSVPreprocessor):
+    """
+    Overrides preprocess() to additionally add columns for secondary diagnoses
+    if missing
+    """
+
+    CSV_NAME = 'icd.csv'
+
+    def preprocess(self):
+        header = self._get_csv_file_header_in_lowercase()
+        header = self._remove_dashes_from_header(header)
+        if 'sekundärkode' in header:
+            header = self.__adjust_columns_for_secondary_diagnoses(header)
+            header += '\n'
+            self._write_header_to_csv(header)
+        else:
+            self.__write_header_with_secondary_diagnoses_columns_to_csv(header)
+
+    def __adjust_columns_for_secondary_diagnoses(self, header: str) -> str:
+        index_sec = header.index('sekundärkode')
+        header_sub = header[index_sec:]
+        header_sub = self.__adjust_secondary_diagnoses_column(header_sub, 'lokalisation')
+        header_sub = self.__adjust_secondary_diagnoses_column(header_sub, 'diagnosensicherheit')
+        return ''.join([header[:index_sec], header_sub])
+
+    @staticmethod
+    def __adjust_secondary_diagnoses_column(header: str, name_column: str) -> str:
+        if len(re.findall(''.join(['sekundär', name_column]), header)) == 1:
+            return header
+        pattern = ''.join([name_column, '(\.)?(\d*)?'])
+        if len(re.findall(pattern, header)) != 1:
+            raise SystemExit('invalid count for column of secondary diagnoses')
+        ind_start = re.search(pattern, header).start()
+        ind_end = re.search(pattern, header).end()
+        return ''.join([header[:ind_start], 'sekundär', name_column, header[ind_end:]])
+
+    def __write_header_with_secondary_diagnoses_columns_to_csv(self, header: str):
+        list_header = header.split(self.CSV_SEPARATOR)
+        encoding = self.get_csv_encoding(self.PATH_CSV)
+        df = pd.read_csv(self.PATH_CSV, sep=self.CSV_SEPARATOR, encoding=encoding, dtype=str)
+        df.set_axis(list_header, axis='columns', inplace=True)
+        df['sekundärkode'] = ''
+        df['sekundärlokalisation'] = ''
+        df['sekundärdiagnosensicherheit'] = ''
+        df.to_csv(self.PATH_CSV, index=False, sep=self.CSV_SEPARATOR)
+
+
+class OPSPreprocessor(CSVPreprocessor):
+    CSV_NAME = 'ops.csv'
+
+
+class CSVFileVerifier(CSVReader, ABC):
+    """
+    Verifies a csv file by checking its existence and existence of required column
+    names. Existence of a csv file is optional, but the required columns must be in
+    the csv file if it exists.
+
+    DICT_COLUMN_PATTERN -> { name of required csv column : regex pattern for column value }
+
+    MANDATORY_COLUMN_VALUES -> list of column names where the value must not be empty
+    or invalid
+
+    DICT_COLUMN_PATTERN and MANDATORY_COLUMN_VALUES must be set in implementing
+    classes
+    """
+
+    DICT_COLUMN_PATTERN: dict = {}
+    MANDATORY_COLUMN_VALUES: list = []
+
+    def is_csv_in_folder(self) -> bool:
+        if not os.path.isfile(self.PATH_CSV):
+            print('{0} could not be found in zip'.format(self.CSV_NAME))
+            return False
+        return True
+
+    def check_column_names_of_csv(self):
+        df = pd.read_csv(self.PATH_CSV, nrows=0, index_col=None, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(self.PATH_CSV), dtype=str)
+        set_required_columns = set(self.DICT_COLUMN_PATTERN.keys())
+        set_matched_columns = set_required_columns.intersection(set(df.columns))
+        if set_matched_columns != set_required_columns:
+            raise SystemExit('following columns are missing in {0}: {1}'.format(self.CSV_NAME, set_required_columns.difference(set_matched_columns)))
+
+    def get_unique_ids_of_valid_encounter(self) -> list:
+        set_valid_ids = set()
+        for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(self.PATH_CSV), dtype=str):
+            chunk = chunk[list(self.DICT_COLUMN_PATTERN.keys())]
+            chunk = chunk.fillna('')
+            for column in chunk.columns.values:
+                chunk = self.clear_invalid_column_fields_in_chunk(chunk, column)
+            set_valid_ids.update(chunk['khinterneskennzeichen'].unique())
+        return list(set_valid_ids)
+
+    def clear_invalid_column_fields_in_chunk(self, chunk: pd.Series, column_name: str) -> pd.Series:
+        """
+        Filters a chunk of a csv dataframe by a given column. All values in column are
+        checked by the pattern set for this column in DICT_COLUMN_PATTERN.
+
+        If column name appears in MANDATORY_COLUMN_VALUES, the whole row of the chunk
+        is dropped if the column value is empty or does not match the pattern.
+
+        If column name does not appear in MANDATORY_COLUMN_VALUES, column values which
+        do not match the pattern are cleared/emptyed (meaning it will not be imported)
+        """
+        pattern = self.DICT_COLUMN_PATTERN[column_name]
+        indeces_empty_fields = chunk[chunk[column_name] == ''].index
+        indeces_wrong_syntax = chunk[(chunk[column_name] != '') & (~chunk[column_name].str.match(pattern))].index
+        if len(indeces_wrong_syntax):
+            if column_name not in self.MANDATORY_COLUMN_VALUES:
+                chunk.at[indeces_wrong_syntax, column_name] = ''
+            else:
+                chunk = chunk.drop(indeces_wrong_syntax)
+        if len(indeces_empty_fields) and column_name in self.MANDATORY_COLUMN_VALUES:
+            chunk = chunk.drop(indeces_empty_fields)
+        return chunk
+
+
+class FALLVerifier(CSVFileVerifier):
+    """
+    fall.csv is a mandatory csv file. Overrides is_csv_in_folder() and get_unique_ids_of_valid_encounter()
+    to exit script if fall.csv does not exist or does not contain any valid encounter
+    """
+
+    CSV_NAME = 'fall.csv'
+    DICT_COLUMN_PATTERN = {'khinterneskennzeichen':         '^.*$',
+                           'ikderkrankenkasse':             '^\w*$',
+                           'geburtsjahr':                   '^(19|20)\d{2}$',
+                           'geschlecht':                    '^[mwdx]$',
+                           'plz':                           '^\d{5}$',
+                           'aufnahmedatum':                 '^\d{12}$',
+                           'aufnahmegrund':                 '^(0[1-9]|10)\d{2}$',
+                           'aufnahmeanlass':                '^[EZNRVAGB]$',
+                           'fallzusammenführung':           '^(J|N)$',
+                           'fallzusammenführungsgrund':     '^OG|MD|KO|RU|WR|MF|P[WRM]|Z[OMKRW]$',
+                           'verweildauerintensiv':          '^\d*(,\d{2})?$',
+                           'entlassungsdatum':              '^\d{12}$',
+                           'entlassungsgrund':              '^\d{2}.{1}$',
+                           'beatmungsstunden':              '^\d*(,\d{2})?$',
+                           'behandlungsbeginnvorstationär': '^\d{8}$',
+                           'behandlungstagevorstationär':   '^\d{0,4}$',
+                           'behandlungsendenachstationär':  '^\d{8}$',
+                           'behandlungstagenachstationär':  '^\d{0,4}$'}
+    MANDATORY_COLUMN_VALUES = ['khinterneskennzeichen', 'aufnahmedatum', 'aufnahmegrund', 'aufnahmeanlass']
+
+    def is_csv_in_folder(self) -> bool:
+        if not os.path.isfile(self.PATH_CSV):
+            raise SystemExit('fall.csv is a mandatory file and could not be found in zip')
+        return True
+
+    def get_unique_ids_of_valid_encounter(self) -> list:
+        list_valid_ids = super().get_unique_ids_of_valid_encounter()
+        if not list_valid_ids:
+            raise SystemExit('no valid encounter found in fall.csv')
+        return list_valid_ids
+
+    def count_total_encounter(self) -> int:
+        with open(self.PATH_CSV, encoding=self.get_csv_encoding(self.PATH_CSV)) as csv:
+            total = sum(1 for _ in csv)
+        return total - 1
+
+    def get_unique_ids_of_valid_encounter_with_admission_dates(self) -> dict:
+        """
+        Same as get_unique_valid_encouter_ids(), but returns a dict with { encounter_id : admission_date }
+        This dict is used together with the output of DatabaseEncounterMatcher.get_matched_df()
+        to create the mapping dataframe required by CSVObservationFactUploadManager
+        """
+        dict_case_admissions = {}
+        for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(self.PATH_CSV), dtype=str):
+            chunk = chunk[list(self.DICT_COLUMN_PATTERN.keys())]
+            chunk = chunk.fillna('')
+            for column in chunk.columns.values:
+                chunk = self.clear_invalid_column_fields_in_chunk(chunk, column)
+            dict_chunk = dict(zip(chunk['khinterneskennzeichen'], chunk['aufnahmedatum']))
+            dict_case_admissions = {**dict_case_admissions, **dict_chunk}
+        if not dict_case_admissions:
+            raise SystemExit('no valid encounter found in fall.csv')
+        return dict_case_admissions
+
+
+class FABVerifier(CSVFileVerifier):
+    CSV_NAME = 'fab.csv'
+    DICT_COLUMN_PATTERN = {'khinterneskennzeichen': '^.*$',
+                           'fachabteilung':         '^(HA|BA|BE)\d{4}$',
+                           'fabaufnahmedatum':      '^\d{12}$',
+                           'fabentlassungsdatum':   '^\d{12}$',
+                           'kennungintensivbett':   '^(J|N)$'}
+    MANDATORY_COLUMN_VALUES = ['khinterneskennzeichen', 'fachabteilung', 'fabaufnahmedatum', 'kennungintensivbett']
+
+
+class ICDVerifier(CSVFileVerifier):
+    CSV_NAME = 'icd.csv'
+    DICT_COLUMN_PATTERN = {'khinterneskennzeichen':       '^.*$',
+                           'diagnoseart':                 '^(HD|ND|SD)$',
+                           'icdversion':                  '^20\d{2}$',
+                           'icdkode':                     '^[A-Z]\d{2}(\.)?.{0,5}$',
+                           'lokalisation':                '^[BLR]$',
+                           'diagnosensicherheit':         '^[AVZG]$',
+                           'sekundärkode':                '^[A-Z]\d{2}(\.)?.{0,5}$',
+                           'sekundärlokalisation':        '^[BLR]$',
+                           'sekundärdiagnosensicherheit': '^[AVZG]$'}
+    MANDATORY_COLUMN_VALUES = ['khinterneskennzeichen', 'diagnoseart', 'icdversion', 'icdkode']
+
+
+class OPSVerifier(CSVFileVerifier):
+    CSV_NAME = 'ops.csv'
+    DICT_COLUMN_PATTERN = {'khinterneskennzeichen': '^.*$',
+                           'opsversion':            '^20\d{2}$',
+                           'opskode':               '^\d{1}(\-)?\d{2}(.{1})?(\.)?.{0,3}$',
+                           'opsdatum':              '^\d{12}$',
+                           'lokalisation':          '^[BLR]$'}
+    MANDATORY_COLUMN_VALUES = ['khinterneskennzeichen', 'opsversion', 'opskode', 'opsdatum']
+
+
+class CSVObservationFactConverter(ABC):
+    """
+    Converts a row from a given csv file to a list of observation fact dictionaries to
+    upload to the table i2b2crcdata.observation_fact in the database.
+
+    Each dictionary corresponds to one row in the database. A list of dicts is created
+    as a row in the csv file may need multiple rows in the database.
+
+    Only mandatory database row values shall be added in create_observation_facts_from_row().
+    Default values (like provider_id or sourcesystem_cd) shall be added through
+    add_static_values_to_row_dict().
+    """
+
+    def __init__(self):
+        self.SCRIPT_ID = os.environ['script_id']
+        self.ZIP_UUID = os.environ['uuid']
+        self.CODE_SOURCE = '_'.join([self.SCRIPT_ID, self.ZIP_UUID])
+
+    @abstractmethod
+    def create_observation_facts_from_row(self, row_csv: pd.Series) -> list:
+        pass
+
+    def add_static_values_to_row_dict(self, dict_row: dict, num_enc: str, num_pat: str, date_admission: str) -> dict:
+        date_import = datetime.now(tz=None).strftime('%Y-%m-%d %H:%M:%S.%f')
+        date_admission = self._convert_date_to_i2b2_format(date_admission)
+        dict_row['encounter_num'] = num_enc
+        dict_row['patient_num'] = num_pat
+        dict_row['provider_id'] = 'P21'
+        if 'start_date' not in dict_row:
+            dict_row['start_date'] = date_admission
+        if 'instance_num' not in dict_row:
+            dict_row['instance_num'] = 1
+        if 'tval_char' not in dict_row:
+            dict_row['tval_char'] = None
+        if 'nval_num' not in dict_row:
+            dict_row['nval_num'] = None
+        if 'valueflag_cd' not in dict_row:
+            dict_row['valueflag_cd'] = None
+        if 'units_cd' not in dict_row:
+            dict_row['units_cd'] = '@'
+        if 'end_date' not in dict_row:
+            dict_row['end_date'] = None
+        dict_row['location_cd'] = '@'
+        dict_row['import_date'] = date_import
+        dict_row['update_date'] = date_import
+        dict_row['download_date'] = date_import
+        dict_row['sourcesystem_cd'] = self.CODE_SOURCE
+        return dict_row
+
+    @staticmethod
+    def _convert_date_to_i2b2_format(date: str) -> str:
+        return datetime.strptime(str(date), '%Y%m%d%H%M').strftime('%Y-%m-%d %H:%M')
+
+
+class FALLObservationFactConverter(CSVObservationFactConverter):
+    """
+    In fall.csv, only the columns 'aufnahmedatum','aufnahmegrund' and 'aufnahmeanlass'
+    are mandatory Other columns may be empty and are only added, if the columns contains
+    a value.
+
+    Columns 'entlassungsdatum' and 'entlassungsgrund' are only added, if both columns
+    contain a value.
+
+    Columns 'fallzusammenführung' and 'fallzusammenführungsgrund' are only added, if
+    both columns contain a value and 'fallzusammenführung' equals 'J'.
+
+    Column 'behandlungstagevorstationär' is only added, if 'behandlungsbeginnvorstationär'
+    contains a value, but is not mandatory for 'behandlungsbeginnvorstationär' to be added.
+    Same goes for 'behandlungstagenachstationär' with 'behandlungsendenachstationär'.
+
+    Additionally, contains a method to add metdata of this script as observation facts.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.SCRIPT_VERSION = os.environ['script_version']
+
+    def create_observation_facts_from_row(self, row_csv: pd.Series) -> list:
+        facts = []
+        facts.extend(self.__create_admission_dicts(row_csv['aufnahmeanlass'], row_csv['aufnahmegrund']))
+        if row_csv['ikderkrankenkasse']:
+            facts.append(self.__create_insurance_dict(row_csv['ikderkrankenkasse']))
+        if row_csv['geburtsjahr']:
+            facts.extend(self.__create_birthyear_dicts(row_csv['geburtsjahr'], row_csv['aufnahmedatum']))
+        if row_csv['geschlecht']:
+            facts.append(self.__create_sex_dict(row_csv['geschlecht']))
+        if row_csv['plz']:
+            facts.append(self.__create_zipcode_dict(row_csv['plz']))
+        if row_csv['fallzusammenführung'] == 'J' and row_csv['fallzusammenführungsgrund']:
+            facts.append(self.__create_encounter_merge_dict(row_csv['fallzusammenführungsgrund']))
+        if row_csv['verweildauerintensiv']:
+            facts.append(self.__create_critical_care_dict(row_csv['verweildauerintensiv']))
+        if row_csv['entlassungsdatum'] and row_csv['entlassungsgrund']:
+            facts.append(self.__create_discharge_dict(row_csv['entlassungsdatum'], row_csv['entlassungsgrund']))
+        if row_csv['beatmungsstunden']:
+            facts.append(self.__create_ventilation_dict(row_csv['beatmungsstunden']))
+        if row_csv['behandlungsbeginnvorstationär']:
+            facts.append(self.__create_prestation_therapy_start_dict(row_csv['behandlungsbeginnvorstationär'], row_csv['behandlungstagevorstationär']))
+        if row_csv['behandlungsendenachstationär']:
+            facts.append(self.__create_poststation_therapy_end_dict(row_csv['behandlungsendenachstationär'], row_csv['behandlungstagenachstationär']))
+        return facts
+
+    @staticmethod
+    def __create_admission_dicts(cause: str, reason: str) -> list:
+        concept_cause = ':'.join(['P21:ADMC', str.upper(cause)])
+        concept_reason = ':'.join(['P21:ADMR', str.upper(reason)])
+        return [{'concept_cd': concept_cause, 'modifier_cd': '@', 'valtype_cd': '@', 'valueflag_cd': '@'},
+                {'concept_cd': concept_reason, 'modifier_cd': '@', 'valtype_cd': '@', 'valueflag_cd': '@'}]
+
+    @staticmethod
+    def __create_insurance_dict(insurance: str) -> dict:
+        return {'concept_cd': 'AKTIN:IKNR', 'modifier_cd': '@', 'valtype_cd': 'T', 'tval_char': insurance}
+
+    @staticmethod
+    def __create_birthyear_dicts(birthyear: str, date_admission: str) -> list:
+        return [{'concept_cd': 'LOINC:80904-6', 'modifier_cd': '@', 'valtype_cd': 'N', 'nval_num': birthyear, 'units_cd': 'yyyy'},
+                {'concept_cd': 'LOINC:80904-6', 'modifier_cd': 'effectiveTime', 'valtype_cd': 'T', 'tval_char': date_admission}]
+
+    @staticmethod
+    def __create_sex_dict(sex: str) -> dict:
+        concept = ':'.join(['P21:SEX', str.upper(sex)])
+        return {'concept_cd': concept, 'modifier_cd': '@', 'valtype_cd': '@', 'valueflag_cd': '@'}
+
+    @staticmethod
+    def __create_zipcode_dict(zipcode: str) -> dict:
+        return {'concept_cd': 'AKTIN:ZIPCODE', 'modifier_cd': '@', 'valtype_cd': 'T', 'tval_char': zipcode}
+
+    @staticmethod
+    def __create_encounter_merge_dict(reason: str) -> dict:
+        concept = ':'.join(['P21:MERGE', str.upper(reason)])
+        return {'concept_cd': concept, 'modifier_cd': '@', 'valtype_cd': '@', 'valueflag_cd': '@'}
+
+    @staticmethod
+    def __create_critical_care_dict(intensive: str) -> dict:
+        intensive = intensive.replace(',', '.')
+        return {'concept_cd': 'P21:DCC', 'modifier_cd': '@', 'valtype_cd': 'N', 'nval_num': intensive, 'units_cd': 'd'}
+
+    @staticmethod
+    def __create_discharge_dict(date: str, reason: str):
+        date = CSVObservationFactConverter._convert_date_to_i2b2_format(date)
+        concept = ':'.join(['P21:DISR', str.upper(reason)])
+        return {'concept_cd': concept, 'start_date': date, 'modifier_cd': '@', 'valtype_cd': '@', 'valueflag_cd': '@'}
+
+    @staticmethod
+    def __create_ventilation_dict(ventilation: str) -> dict:
+        ventilation = ventilation.replace(',', '.')
+        return {'concept_cd': 'P21:DV', 'modifier_cd': '@', 'valtype_cd': 'N', 'nval_num': ventilation, 'units_cd': 'h'}
+
+    @staticmethod
+    def __create_prestation_therapy_start_dict(date_start: str, days: str) -> dict:
+        """
+        Date information in csv is missing hours and minutes, so dummy values are added
+        """
+        date_start = CSVObservationFactConverter._convert_date_to_i2b2_format(''.join([date_start, '0000']))
+        if days:
+            return {'concept_cd': 'P21:PREADM', 'start_date': date_start, 'modifier_cd': '@', 'valtype_cd': 'N', 'nval_num': days, 'units_cd': 'd'}
+        else:
+            return {'concept_cd': 'P21:PREADM', 'start_date': date_start, 'modifier_cd': '@', 'valtype_cd': '@', 'valueflag_cd': '@'}
+
+    @staticmethod
+    def __create_poststation_therapy_end_dict(date_end: str, days: str) -> dict:
+        """
+        Date information in csv is missing hours and minutes, so dummy values are added
+        """
+        date_end = CSVObservationFactConverter._convert_date_to_i2b2_format(''.join([date_end, '0000']))
+        if days:
+            return {'concept_cd': 'P21:POSTDIS', 'start_date': date_end, 'modifier_cd': '@', 'valtype_cd': 'N', 'nval_num': days, 'units_cd': 'd'}
+        else:
+            return {'concept_cd': 'P21:POSTDIS', 'start_date': date_end, 'modifier_cd': '@', 'valtype_cd': '@', 'valueflag_cd': '@'}
+
+    def create_script_rows(self) -> list:
+        return [{'concept_cd': 'P21:SCRIPT', 'modifier_cd': '@', 'valtype_cd': '@', 'valueflag_cd': '@'},
+                {'concept_cd': 'P21:SCRIPT', 'modifier_cd': 'scriptVer', 'valtype_cd': 'T', 'tval_char': self.SCRIPT_VERSION},
+                {'concept_cd': 'P21:SCRIPT', 'modifier_cd': 'scriptId', 'valtype_cd': 'T', 'tval_char': self.SCRIPT_ID}]
+
+
+class FABObservationFactConverter(CSVObservationFactConverter):
+    """
+    In fab.csv, all columns but 'fabentlassungsdatum' are mandatory.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.COUNTER_INSTANCE = ObservationFactInstanceCounter()
+
+    def create_observation_facts_from_row(self, row_csv: pd.Series) -> list:
+        id_case = row_csv['khinterneskennzeichen']
+        num_instance = self.COUNTER_INSTANCE.add_row_instance_count(id_case)
+        facts = self.__create_department_dict(num_instance, row_csv['fachabteilung'], row_csv['kennungintensivbett'], row_csv['fabaufnahmedatum'], row_csv['fabentlassungsdatum'])
+        return [facts]
+
+    def __create_department_dict(self, num_instance: str, department: str, intensive: str, date_start: str, date_end: str) -> dict:
+        date_start = self._convert_date_to_i2b2_format(date_start)
+        date_end = self._convert_date_to_i2b2_format(date_end) if date_end else None
+        concept = 'P21:DEP:CC' if intensive == 'J' else 'P21:DEP'
+        return {'concept_cd': concept, 'start_date': date_start, 'modifier_cd': '@', 'instance_num': num_instance, 'valtype_cd': 'T', 'tval_char': department, 'end_date': date_end}
+
+
+class ICDObservationFactConverter(CSVObservationFactConverter):
+    """
+    In icd.csv, only the columns 'icdkode','icdversion' and 'diagnoseart' are mandatory.
+    Other columns may be empty and are only added, if the columns contains a value.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.COUNTER_INSTANCE = ObservationFactInstanceCounter()
+
+    def create_observation_facts_from_row(self, row_csv: pd.Series) -> list:
+        facts = []
+        id_case = row_csv['khinterneskennzeichen']
+        num_instance = self.COUNTER_INSTANCE.add_row_instance_count(id_case)
+        facts.extend(self.__create_icd_dicts(num_instance, row_csv['icdkode'], row_csv['diagnoseart'], row_csv['icdversion'], row_csv['lokalisation'], row_csv['diagnosensicherheit']))
+        if row_csv['sekundärkode']:
+            num_instance = self.COUNTER_INSTANCE.add_row_instance_count(id_case)
+            facts.extend(
+                self.__create_icd_sek_dicts(num_instance, row_csv['sekundärkode'], row_csv['icdkode'], row_csv['icdversion'], row_csv['sekundärlokalisation'], row_csv['sekundärdiagnosensicherheit']))
+        return facts
+
+    def __create_icd_dicts(self, num_instance: str, code: str, type_diag: str, version: str, localisation: str, certainty: str) -> list:
+        concept = ':'.join(['ICD10GM', self.__convert_icd_code_to_i2b2_format(code)])
+        list_facts = [{'concept_cd': concept, 'modifier_cd': '@', 'instance_num': num_instance, 'valtype_cd': '@', 'valueflag_cd': '@'},
+                      {'concept_cd': concept, 'modifier_cd': 'diagType', 'instance_num': num_instance, 'valtype_cd': 'T', 'tval_char': type_diag},
+                      {'concept_cd': concept, 'modifier_cd': 'cdVersion', 'instance_num': num_instance, 'valtype_cd': 'N', 'nval_num': version, 'units_cd': 'yyyy'}]
+        if localisation:
+            list_facts.append({'concept_cd': concept, 'modifier_cd': 'localisation', 'instance_num': num_instance, 'valtype_cd': 'T', 'tval_char': localisation})
+        if certainty:
+            list_facts.append({'concept_cd': concept, 'modifier_cd': 'certainty', 'instance_num': num_instance, 'valtype_cd': 'T', 'tval_char': certainty})
+        return list_facts
+
+    def __create_icd_sek_dicts(self, num_instance: str, code: str, code_parent: str, version: str, localisation: str, certainty: str) -> list:
+        list_facts = self.__create_icd_dicts(num_instance, code, 'SD', version, localisation, certainty)
+        concept_parent = ':'.join(['ICD10GM', self.__convert_icd_code_to_i2b2_format(code_parent)])
+        concept_icd = ':'.join(['ICD10GM', self.__convert_icd_code_to_i2b2_format(code)])
+        list_facts.append({'concept_cd': concept_icd, 'modifier_cd': 'sdFrom', 'instance_num': num_instance, 'valtype_cd': 'T', 'tval_char': concept_parent})
+        return list_facts
+
+    @staticmethod
+    def __convert_icd_code_to_i2b2_format(code) -> str:
+        """
+        Converts icd code to i2b2crcdata.observation_fact format. Example:
+        F2424 -> F24.24
+        F24.24 -> F24.24
+        J90 -> J90
+        J21. -> J21.
+        """
+        if len(code) > 3:
+            code = ''.join([code[:3], '.', code[3:]] if code[3] != '.' else code)
+        return code
+
+
+class OPSObservationFactConverter(CSVObservationFactConverter):
+    """
+    In ops.csv, all columns but 'lokalisation' are mandatory.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.COUNTER_INSTANCE = ObservationFactInstanceCounter()
+
+    def create_observation_facts_from_row(self, row_csv: pd.Series) -> list:
+        id_case = row_csv['khinterneskennzeichen']
+        num_instance = self.COUNTER_INSTANCE.add_row_instance_count(id_case)
+        return self.__create_ops_dicts(num_instance, row_csv['opskode'], row_csv['opsversion'], row_csv['lokalisation'], row_csv['opsdatum'])
+
+    def __create_ops_dicts(self, num_instance: str, code, version, localisation, date: str) -> list:
+        date = self._convert_date_to_i2b2_format(date)
+        concept = ':'.join(['OPS', self.__convert_ops_code_to_i2b2_format(code)])
+        list_facts = [{'concept_cd': concept, 'start_date': date, 'modifier_cd': '@', 'instance_num': num_instance, 'valtype_cd': '@', 'valueflag_cd': '@'},
+                      {'concept_cd': concept, 'start_date': date, 'modifier_cd': 'cdVersion', 'instance_num': num_instance, 'valtype_cd': 'N', 'nval_num': version, 'units_cd': 'yyyy'}]
+        if localisation:
+            list_facts.append({'concept_cd': concept, 'start_date': date, 'modifier_cd': 'localisation', 'instance_num': num_instance, 'valtype_cd': 'T', 'tval_char': localisation})
+        return list_facts
+
+    @staticmethod
+    def __convert_ops_code_to_i2b2_format(code) -> str:
+        """
+        Converts ops code to i2b2crcdata.observation_fact format. Example:
+        964922 -> 9-649.22
+        9-64922 -> 9-649.22
+        9649.22 -> 9-649.22
+        9-649.22 -> 9-649.22
+        1-5020 -> 1-502.0
+        1-501 -> 1-501
+        1051 -> 1-501
+        """
+        code = ''.join([code[:1], '-', code[1:]] if code[1] != '-' else code)
+        if len(code) > 5:
+            code = ''.join([code[:5], '.', code[5:]] if code[5] != '.' else code)
+        return code
+
+
+class ObservationFactInstanceCounter:
+    """
+    Helper class for CSVObservationFactConverter.
+    Is used to keep track of reappearing encounter in a csv file
+    """
+
+    def __init__(self):
+        self.DICT_NUM_INSTANCES = {}
+
+    def add_row_instance_count(self, id_case: str) -> str:
+        if id_case not in self.DICT_NUM_INSTANCES:
+            self.DICT_NUM_INSTANCES[id_case] = 1
+        else:
+            self.DICT_NUM_INSTANCES[id_case] += 1
+        return self.DICT_NUM_INSTANCES.get(id_case)
+
+
+class DatabaseConnection(ABC):
+    ENGINE: db.engine.Engine = None
+    CONNECTION: db.engine.Connection = None
+
+    def __init__(self):
+        self.USERNAME = os.environ['username']
+        self.PASSWORD = os.environ['password']
+        self.I2B2_CONNECTION_URL = os.environ['connection-url']
+
+    def connect(self):
+        pattern = 'jdbc:postgresql://(.*?)(\?searchPath=.*)?$'
+        connection = re.search(pattern, self.I2B2_CONNECTION_URL).group(1)
+        self.ENGINE = db.create_engine('postgresql+psycopg2://{0}:{1}@{2}'.format(self.USERNAME, self.PASSWORD, connection))
+        self.CONNECTION = self.ENGINE.connect()
+
+    def close(self):
+        if self.CONNECTION:
+            self.CONNECTION.close()
+        if self.ENGINE:
+            self.ENGINE.dispose()
+
+
+class DatabaseExtractor(DatabaseConnection, ABC):
+    SIZE_CHUNKS: int = 10000
+
+    @abstractmethod
+    def extract(self) -> pd.DataFrame:
+        pass
+
+    def _stream_query_into_df(self, query: db.sql.expression) -> pd.DataFrame:
+        df = pd.DataFrame()
+        result = self.CONNECTION.execution_options(stream_results=True).execute(query)
+        while True:
+            chunk = result.fetchmany(self.SIZE_CHUNKS)
+            if not chunk:
+                break
+            if df.empty:
+                df = pd.DataFrame(chunk)
+            else:
+                df = df.append(chunk, ignore_index=True)
+        if df.empty:
+            raise ValueError('no entries for database query found')
+        df.columns = result.keys()
+        return df
+
+
+class EncounterInfoExtractorWithEncounterId(DatabaseExtractor):
+    """
+    SQLAlchemy-Query to extract encounter_id, encounter_num and patient_num for AKTIN
+    optin encounter from database. Column for encounter_id is renmaed to 'match_id'
+    to streamline the matching in DatabaseEncounterMatcher.
+    """
+
+    def extract(self) -> pd.DataFrame:
+        try:
+            self.connect()
+            enc = db.Table('encounter_mapping', db.MetaData(), autoload_with=self.ENGINE)
+            pat = db.Table('patient_mapping', db.MetaData(), autoload_with=self.ENGINE)
+            opt = db.Table('optinout_patients', db.MetaData(), autoload_with=self.ENGINE)
+            query = db.select([enc.c['encounter_ide'], enc.c['encounter_num'], pat.c['patient_num']]).select_from(
+                enc.join(pat, enc.c['patient_ide'] == pat.c['patient_ide']).join(opt, pat.c['patient_ide'] == opt.c['pat_psn'], isouter=True)).where(
+                db.or_(opt.c['study_id'] != 'AKTIN', opt.c['pat_psn'].is_(None)))
+            df = self._stream_query_into_df(query)
+            df.rename(columns={'encounter_ide': 'match_id'}, inplace=True)
+            return df
+        finally:
+            self.close()
+
+
+class EncounterInfoExtractorWithBillingId(DatabaseExtractor):
+    """
+    SQLAlchemy-Query to extract billing_id, encounter_num and patient_num for AKTIN
+    optin encounter from database. Column for billing_id is renmaed to 'match_id'
+    to streamline the matching in DatabaseEncounterMatcher.
+    """
+
+    def extract(self) -> pd.DataFrame:
+        try:
+            self.connect()
+            fact = db.Table('observation_fact', db.MetaData(), autoload_with=self.ENGINE)
+            pat = db.Table('patient_mapping', db.MetaData(), autoload_with=self.ENGINE)
+            opt = db.Table('optinout_patients', db.MetaData(), autoload_with=self.ENGINE)
+            query = db.select([fact.c['tval_char'], fact.c['encounter_num'], fact.c['patient_num']]).select_from(
+                fact.join(pat, fact.c['patient_num'] == pat.c['patient_num']).join(opt, pat.c['patient_ide'] == opt.c['pat_psn'], isouter=True)).where(
+                db.and_(db.or_(opt.c['study_id'] != 'AKTIN', opt.c['pat_psn'].is_(None)), fact.c['concept_cd'] == 'AKTIN:Fallkennzeichen'))
+            df = self._stream_query_into_df(query)
+            df.rename(columns={'tval_char': 'match_id'}, inplace=True)
+            return df
+        finally:
+            self.close()
+
+
+class DatabaseEncounterMatcher:
+    """
+    Matches a list of encounter ids from a csv file (column 'khinterneskennzeichen')
+    with ids from the database. Type of matching is determined by the given instance
+    of DatabaseExtractor (encounter id or billing id).
+    """
+
+    def __init__(self, extractor: DatabaseExtractor):
+        self.READER = AktinPropertiesReader()
+        algorithm = self.READER.get_property('pseudonym.algorithm')
+        self.ANONYMIZER = OneWayAnonymizer(algorithm)
+        self.EXTRACTOR = extractor
+
+    def get_matched_df(self, list_csv_ids: list) -> pd.DataFrame:
+        """
+        Matches input list of csv ids with ids from database.
+        Returns a dataframe with unhashed encounter id (from csv) and corresponding
+        patient num and encounter num (from database). This dataframe is merged
+        together with the output of FALLVerifier.get_unique_ids_of_valid_encounter_with_admission_dates()
+        to create the mapping dataframe required by CSVObservationFactUploadManager.
+        """
+        salt = self.__get_salt_property()
+        root = self.__get_extractor_type_root()
+        df_db = self.EXTRACTOR.extract()
+        list_csv_ide = self.ANONYMIZER.anonymize_list(root, list_csv_ids, salt)
+        df_csv = pd.DataFrame(list(zip(list_csv_ids, list_csv_ide)), columns=['encounter_id', 'match_id'])
+        df_merged = pd.merge(df_db, df_csv, on=['match_id'])
+        df_merged = df_merged.drop(['match_id'], axis=1)
+        if df_merged.empty:
+            raise SystemExit('no encounter could be matched with database')
+        return df_merged
+
+    def get_matched_list(self, list_csv_ids: list) -> list:
+        df = self.get_matched_df(list_csv_ids)
+        return df['encounter_id'].tolist()
+
+    def __get_extractor_type_root(self) -> str:
+        if isinstance(self.EXTRACTOR, EncounterInfoExtractorWithEncounterId):
+            return self.READER.get_property('cda.encounter.root.preset')
+        elif isinstance(self.EXTRACTOR, EncounterInfoExtractorWithBillingId):
+            return self.READER.get_property('cda.billing.root.preset')
+        else:
+            raise SystemExit('invalid instance of DatabaseExtractor')
+
+    def __get_salt_property(self) -> str:
+        return self.READER.get_property('pseudonym.salt')
+
+
+class AktinPropertiesReader:
+
+    def __init__(self):
+        self.PATH_AKTIN_PROPERTIES = os.environ['path_aktin_properties']
+        if not os.path.exists(self.PATH_AKTIN_PROPERTIES):
+            raise SystemExit('file path for aktin.properties is not valid')
+
+    def get_property(self, prop: str) -> str:
+        with open(self.PATH_AKTIN_PROPERTIES) as properties:
+            for line in properties:
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    if key == prop:
+                        return value.strip()
+            return ''
+
+
+class OneWayAnonymizer:
+    """
+    Same hashing process as the AKTIN DWH
+    """
+
+    def __init__(self, name_alg):
+        name_alg = name_alg or 'sha1'
+        self.ALGORITHM = self.__convert_crypto_alg_name(name_alg)
+
+    @staticmethod
+    def __convert_crypto_alg_name(name_alg: str) -> str:
+        """
+        Converts given name of java cryptograhpic hash function to python demanted format
+        """
+        return str.lower(name_alg.replace('-', '', ).replace('/', '_'))
+
+    def anonymize(self, root, ext, salt) -> str:
+        composite = '/'.join([str(root), str(ext)])
+        composite = salt + composite if salt else composite
+        buffer = composite.encode('UTF-8')
+        alg = getattr(hashlib, self.ALGORITHM)()
+        alg.update(buffer)
+        return base64.urlsafe_b64encode(alg.digest()).decode('UTF-8')
+
+    def anonymize_list(self, root, list_ext, salt) -> list:
+        return [self.anonymize(root, ext, salt) for ext in list_ext]
+
+
+class TableHandler(DatabaseConnection, ABC):
+    """
+    Interface for i2b2 tables.
+    Table must be reflected prior uploading/deleting data.
+    """
+    TABLE: db.schema.Table = None
+
+    @abstractmethod
+    def reflect_table(self):
+        pass
+
+    @abstractmethod
+    def upload_data(self, list_dicts: list):
+        pass
+
+    @abstractmethod
+    def delete_data(self, identifier: str):
+        pass
+
+
+class ObservationFactTableHandler(TableHandler):
+    """
+    Uploads data to/deletes data from i2b2crcdata.observation_fact
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.SCRIPT_ID = os.environ['script_id']
+
+    def reflect_table(self):
+        self.TABLE = db.Table('observation_fact', db.MetaData(), autoload_with=self.ENGINE)
+
+    def upload_data(self, list_dicts: list):
+        """
+        Uploads observation_fact rows. Each dict corresponds to one row in the database
+        and must contain Key-Value-Pairs for each column in table.
+        """
+        transaction = self.CONNECTION.begin()
+        try:
+            self.CONNECTION.execute(self.TABLE.insert(), list_dicts)
+            transaction.commit()
+        except exc.SQLAlchemyError:
+            transaction.rollback()
+            traceback.print_exc()
+            raise SystemExit('upload operation failed')
+
+    def delete_data(self, identifier: str):
+        """
+        Deletes all p21 data of given encounter. Data to delete is identified by the
+        given encounter_num and its corresponding sourcesystem_cd (id of this script + uuid of the zip file)
+        """
+        sourcesystem = self.__get_sourcesystem_of_encounter(identifier)
+        if self.__is_sourcesystem_valid(sourcesystem):
+            sourcesystem_cd = sourcesystem[0][0]
+            transaction = self.CONNECTION.begin()
+            try:
+                statement_delete = self.TABLE.delete().where(self.TABLE.c['encounter_num'] == str(identifier)).where(self.TABLE.c['sourcesystem_cd'] == sourcesystem_cd)
+                self.CONNECTION.execute(statement_delete)
+                transaction.commit()
+            except exc.SQLAlchemyError:
+                transaction.rollback()
+                traceback.print_exc()
+                raise SystemExit('delete operation for encounter failed')
+
+    def check_if_encounter_is_imported(self, num_enc: str) -> bool:
+        sourcesystem = self.__get_sourcesystem_of_encounter(num_enc)
+        return self.__is_sourcesystem_valid(sourcesystem)
+
+    def __get_sourcesystem_of_encounter(self, num_enc: str) -> str:
+        """
+        Checks, if an enconter was already uploaded using this script (including older versions).
+        Check is done by matching the observation fact rows of script metadata (see
+        FALLObservationFactConverter) of the corresponding encounter with the metadata
+        of this script.
+        """
+        query = db.select([self.TABLE.c['sourcesystem_cd']]).where(self.TABLE.c['encounter_num'] == str(num_enc)).where(self.TABLE.c['concept_cd'] == 'P21:SCRIPT').where(
+            self.TABLE.c['modifier_cd'] == 'scriptId').where(self.TABLE.c['tval_char'] == self.SCRIPT_ID)
+        return self.CONNECTION.execute(query).fetchall()
+
+    @staticmethod
+    def __is_sourcesystem_valid(sourcesystem: str) -> bool:
+        if sourcesystem:
+            if len(sourcesystem) != 1:
+                raise SystemExit('invalid number of sourcesystems for encounter found')
+            return True
+        return False
+
+
+class CSVObservationFactUploadManager(ABC):
+    """
+    Uploads all valid encounter data of a given csv file as observation facts to i2b2crcdata.observation_fact.
+    Needs a mapping table to map the unhashed ids of the csv file with the patient_num and encounter_num in
+    database. Values for 'aufnahmedatum' are also needed as a default value for 'start_date' in i2b2 table
+    (see CSVObservationFactConverter.add_static_values_to_row_dict()).
+    """
+
+    VERIFIER: CSVFileVerifier = None
+    CONVERTER: CSVObservationFactConverter = None
+
+    def __init__(self, matched_encounter_info: pd.DataFrame):
+        self.TABLEHANDLER = ObservationFactTableHandler()
+        self.DF_MAPPING = matched_encounter_info
+        if self.DF_MAPPING.empty:
+            raise SystemExit('given encounter mapping dataframe is empty')
+        if not {'encounter_id', 'encounter_num', 'patient_num', 'aufnahmedatum'}.issubset(self.DF_MAPPING.columns):
+            raise SystemExit('invalid encounter mapping dataframe supplied')
+
+    def upload_csv(self):
+        try:
+            self.TABLEHANDLER.connect()
+            self.TABLEHANDLER.reflect_table()
+            for chunk in pd.read_csv(self.VERIFIER.PATH_CSV, chunksize=self.VERIFIER.SIZE_CHUNKS, sep=self.VERIFIER.CSV_SEPARATOR, encoding=self.VERIFIER.get_csv_encoding(self.VERIFIER.PATH_CSV), dtype=str):
+                chunk = self._clear_chunk_from_invalid_data(chunk)
+                if chunk.empty:
+                    continue
+                list_observation_fact_dicts = self._convert_chunk_to_uploadable_facts(chunk)
+                self.TABLEHANDLER.upload_data(list_observation_fact_dicts)
+        finally:
+            self.TABLEHANDLER.close()
+
+    def _clear_chunk_from_invalid_data(self, chunk: pd.Series) -> pd.Series:
+        chunk = chunk[list(self.VERIFIER.DICT_COLUMN_PATTERN.keys())]
+        chunk = chunk[chunk['khinterneskennzeichen'].isin(self.DF_MAPPING['encounter_id'])]
+        chunk = chunk.fillna('')
+        for column in chunk.columns.values:
+            chunk = self.VERIFIER.clear_invalid_column_fields_in_chunk(chunk, column)
+        return chunk
+
+    def _convert_chunk_to_uploadable_facts(self, chunk: pd.Series) -> list:
+        list_observation_fact_dicts = []
+        for row_csv in chunk.iterrows():
+            row_csv = row_csv[1]
+            list_converted_row = self.CONVERTER.create_observation_facts_from_row(row_csv)
+            list_converted_row = self._add_static_observation_facts(list_converted_row, row_csv['khinterneskennzeichen'])
+            list_observation_fact_dicts.extend(list_converted_row)
+        return list_observation_fact_dicts
+
+    def _add_static_observation_facts(self, list_facts: list, id_case: str) -> list:
+        row_case = self.DF_MAPPING.loc[self.DF_MAPPING['encounter_id'] == id_case]
+        num_enc = str(row_case['encounter_num'].values[0])
+        num_pat = str(row_case['patient_num'].values[0])
+        date_admission = row_case['aufnahmedatum'].values[0]
+        for index, row in enumerate(list_facts):
+            list_facts[index] = self.CONVERTER.add_static_values_to_row_dict(row, num_enc, num_pat, date_admission)
+        return list_facts
+
+
+class FALLObservationFactUploadManager(CSVObservationFactUploadManager):
+    """
+    Overrides _convert_chunk_to_uploadable_facts() to check and delete all p21 data of an encounter
+    if it was already uploaded using this script.
+    """
+
+    def __init__(self, df_mapping: pd.DataFrame, path_folder: str):
+        super().__init__(df_mapping)
+        self.VERIFIER = FALLVerifier(path_folder)
+        self.CONVERTER = FALLObservationFactConverter()
+        self.NUM_IMPORTS = 0
+        self.NUM_UPDATES = 0
+
+    def _convert_chunk_to_uploadable_facts(self, chunk: pd.Series) -> list:
+        list_observation_fact_dicts = []
+        for row_csv in chunk.iterrows():
+            row_csv = row_csv[1]
+            num_enc = str(self.DF_MAPPING.loc[self.DF_MAPPING['encounter_id'] == row_csv['khinterneskennzeichen']]['encounter_num'].values[0])
+            if self.TABLEHANDLER.check_if_encounter_is_imported(num_enc):
+                self.TABLEHANDLER.delete_data(num_enc)
+                self.NUM_UPDATES += 1
+            else:
+                self.NUM_IMPORTS += 1
+            list_converted_row = self.CONVERTER.create_observation_facts_from_row(row_csv)
+            list_converted_row.extend(self.CONVERTER.create_script_rows())
+            list_converted_row = self._add_static_observation_facts(list_converted_row, row_csv['khinterneskennzeichen'])
+            list_observation_fact_dicts.extend(list_converted_row)
+        return list_observation_fact_dicts
+
+
+class FABObservationFactUploadManager(CSVObservationFactUploadManager):
+    def __init__(self, df_mapping: pd.DataFrame, path_folder: str):
+        super().__init__(df_mapping)
+        self.VERIFIER = FABVerifier(path_folder)
+        self.CONVERTER = FABObservationFactConverter()
+
+
+class ICDObservationFactUploadManager(CSVObservationFactUploadManager):
+    def __init__(self, df_mapping: pd.DataFrame, path_folder: str):
+        super().__init__(df_mapping)
+        self.VERIFIER = ICDVerifier(path_folder)
+        self.CONVERTER = ICDObservationFactConverter()
+
+
+class OPSObservationFactUploadManager(CSVObservationFactUploadManager):
+    def __init__(self, df_mapping: pd.DataFrame, path_folder: str):
+        super().__init__(df_mapping)
+        self.VERIFIER = OPSVerifier(path_folder)
+        self.CONVERTER = OPSObservationFactConverter()
+
+
+if __name__ == '__main__':
+    if len(sys.argv) != 3:
+        raise SystemExit('sys.argv don\'t match')
+    p21 = P21Importer(sys.argv[2])
+    if sys.argv[1] == 'verify_file':
+        p21.verify_file()
+    elif sys.argv[1] == 'import_file':
+        p21.import_file()
+    else:
+        raise SystemExit('unknown method function')
