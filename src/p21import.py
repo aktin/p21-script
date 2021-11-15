@@ -171,13 +171,11 @@ class TmpFolderManager:
 class CSVReader(ABC):
     """
     Provides configuration for reading a csv file of given path.
-
-    CSV_NAME must be set in implementing classes.
     """
 
     SIZE_CHUNKS: int = 10000
     CSV_SEPARATOR: str = ';'
-    CSV_NAME: str = None
+    CSV_NAME: str
 
     def __init__(self, path_folder: str):
         self.PATH_CSV = os.path.join(path_folder, self.CSV_NAME)
@@ -296,8 +294,8 @@ class CSVFileVerifier(CSVReader, ABC):
     classes
     """
 
-    DICT_COLUMN_PATTERN: dict = {}
-    MANDATORY_COLUMN_VALUES: list = []
+    DICT_COLUMN_PATTERN: dict
+    MANDATORY_COLUMN_VALUES: list
 
     def is_csv_in_folder(self) -> bool:
         if not os.path.isfile(self.PATH_CSV):
@@ -1031,12 +1029,11 @@ class CSVObservationFactUploadManager(ABC):
     database. Values for 'aufnahmedatum' are also needed as a default value for 'start_date' in i2b2 table
     (see CSVObservationFactConverter.add_static_values_to_row_dict()).
     """
-
-    VERIFIER: CSVFileVerifier = None
-    CONVERTER: CSVObservationFactConverter = None
+    VERIFIER: CSVFileVerifier
+    CONVERTER: CSVObservationFactConverter
+    TABLEHANDLER: ObservationFactTableHandler = ObservationFactTableHandler()
 
     def __init__(self, matched_encounter_info: pd.DataFrame):
-        self.TABLEHANDLER = ObservationFactTableHandler()
         self.DF_MAPPING = matched_encounter_info
         if self.DF_MAPPING.empty:
             raise SystemExit('given encounter mapping dataframe is empty')
