@@ -1,0 +1,20 @@
+@startuml
+'https://plantuml.com/activity-diagram-beta
+
+start
+:File verification by script;
+if (successful?) then (yes)
+  :Print verification results;
+  :File import by script;
+  if (successful?) then (yes)
+    :Print import results;
+    stop
+  else (no)
+    :Print error log;
+    end
+  endif
+else (no)
+:Print error log;
+end
+endif
+@enduml
