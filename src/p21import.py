@@ -9,20 +9,21 @@ Created on Wed Jan 20 11:36:55 2021
 # @MIMETYPE=zip
 # @ID=p21
 
+import base64
+import hashlib
 import os
+import re
+import shutil
 import sys
+import traceback
 import zipfile
+from abc import ABC, abstractmethod
+from datetime import datetime
+
 import chardet
 import pandas as pd
 import sqlalchemy as db
 from sqlalchemy import exc
-import hashlib
-import base64
-import re
-import traceback
-import shutil
-from datetime import datetime
-from abc import ABC, abstractmethod
 
 """
 Script to verify and import p21 data into AKTIN DWH. AKTIN DWH provides path to a zip-file 
@@ -959,10 +960,6 @@ class ObservationFactTableHandler(TableHandler):
     Uploads data to/deletes data from i2b2crcdata.observation_fact
     """
 
-    def __init__(self):
-        super().__init__()
-        self.SCRIPT_ID = os.environ['script_id']
-
     def reflect_table(self):
         self.TABLE = db.Table('observation_fact', db.MetaData(), autoload_with=self.ENGINE)
 
@@ -1010,7 +1007,7 @@ class ObservationFactTableHandler(TableHandler):
         of this script.
         """
         query = db.select([self.TABLE.c['sourcesystem_cd']]).where(self.TABLE.c['encounter_num'] == str(num_enc)).where(self.TABLE.c['concept_cd'] == 'P21:SCRIPT').where(
-            self.TABLE.c['modifier_cd'] == 'scriptId').where(self.TABLE.c['tval_char'] == self.SCRIPT_ID)
+            self.TABLE.c['modifier_cd'] == 'scriptId').where(self.TABLE.c['provider_id'] == 'P21')
         return self.CONNECTION.execute(query).fetchall()
 
     @staticmethod
@@ -1031,9 +1028,9 @@ class CSVObservationFactUploadManager(ABC):
     """
     VERIFIER: CSVFileVerifier
     CONVERTER: CSVObservationFactConverter
-    TABLEHANDLER: ObservationFactTableHandler = ObservationFactTableHandler()
 
     def __init__(self, matched_encounter_info: pd.DataFrame):
+        self.TABLEHANDLER: ObservationFactTableHandler = ObservationFactTableHandler()
         self.DF_MAPPING = matched_encounter_info
         if self.DF_MAPPING.empty:
             raise SystemExit('given encounter mapping dataframe is empty')
