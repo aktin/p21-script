@@ -4,7 +4,7 @@
 Created on Wed Jan 20 11:36:55 2021
 @author: akombeiz
 """
-# @VERSION=1.5
+# @VERSION=1.5.1
 # @VIEWNAME=P21-Importskript
 # @MIMETYPE=zip
 # @ID=p21
@@ -184,7 +184,7 @@ class CSVReader(ABC):
     @staticmethod
     def get_csv_encoding(path_csv: str) -> str:
         with open(path_csv, 'rb') as csv:
-            encoding = chardet.detect(csv.read(1024))['encoding']
+            encoding = chardet.detect(csv.read(5120))['encoding']
         return encoding
 
 
@@ -220,6 +220,17 @@ class CSVPreprocessor(CSVReader, ABC):
         os.remove(self.PATH_CSV)
         os.rename(path_dummy, self.PATH_CSV)
 
+    def _rename_column_in_header(self, header: str, column_old: str, column_new: str) -> str:
+        list_header = header.split(self.CSV_SEPARATOR)
+        if list_header.count(column_new) == 1:
+            return header
+        pattern = ''.join(['^', column_old, '(\.)?(\d*)?$'])
+        idx_match = [i for i, item in enumerate(list_header) if re.search(pattern, item)]
+        if len(idx_match) != 1:
+            raise SystemExit('invalid count for column of %s during adjustment' % column_old)
+        list_header[idx_match[0]] = column_new
+        return self.CSV_SEPARATOR.join(list_header)
+
 
 class FALLPreprocessor(CSVPreprocessor):
     CSV_NAME = 'fall.csv'
@@ -227,6 +238,13 @@ class FALLPreprocessor(CSVPreprocessor):
 
 class FABPreprocessor(CSVPreprocessor):
     CSV_NAME = 'fab.csv'
+
+    def preprocess(self):
+        header = self._get_csv_file_header_in_lowercase()
+        header = self._remove_dashes_from_header(header)
+        header = self._rename_column_in_header(header, 'fab', 'fachabteilung')
+        header += '\n'
+        self._write_header_to_csv(header)
 
 
 class ICDPreprocessor(CSVPreprocessor):
@@ -250,20 +268,9 @@ class ICDPreprocessor(CSVPreprocessor):
     def __adjust_columns_for_secondary_diagnoses(self, header: str) -> str:
         index_sec = header.index('sekundärkode')
         header_sub = header[index_sec:]
-        header_sub = self.__adjust_secondary_diagnoses_column(header_sub, 'lokalisation')
-        header_sub = self.__adjust_secondary_diagnoses_column(header_sub, 'diagnosensicherheit')
+        header_sub = self._rename_column_in_header(header_sub, 'lokalisation', 'sekundärlokalisation')
+        header_sub = self._rename_column_in_header(header_sub, 'diagnosensicherheit', 'sekundärdiagnosensicherheit')
         return ''.join([header[:index_sec], header_sub])
-
-    @staticmethod
-    def __adjust_secondary_diagnoses_column(header: str, name_column: str) -> str:
-        if len(re.findall(''.join(['sekundär', name_column]), header)) == 1:
-            return header
-        pattern = ''.join([name_column, '(\.)?(\d*)?'])
-        if len(re.findall(pattern, header)) != 1:
-            raise SystemExit('invalid count for column of secondary diagnoses')
-        ind_start = re.search(pattern, header).start()
-        ind_end = re.search(pattern, header).end()
-        return ''.join([header[:ind_start], 'sekundär', name_column, header[ind_end:]])
 
     def __write_header_with_secondary_diagnoses_columns_to_csv(self, header: str):
         list_header = header.split(self.CSV_SEPARATOR)
