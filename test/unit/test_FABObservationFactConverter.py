@@ -1,11 +1,13 @@
-import unittest
 import os
-import pandas as pd
+import unittest
+
 import chardet
+import pandas as pd
+
+from src.p21import import FABObservationFactConverter
+from src.p21import import FABPreprocessor
 from src.p21import import TmpFolderManager
 from src.p21import import ZipFileExtractor
-from src.p21import import FABPreprocessor
-from src.p21import import FABObservationFactConverter
 
 
 def get_csv_encoding(path_csv: str) -> str:
@@ -32,6 +34,7 @@ class TestFABObservationFactConverter(unittest.TestCase):
         os.environ['uuid'] = '3fc5b451-1111-2222-3333-a70bfc58fd1f'
         os.environ['script_id'] = 'test'
         os.environ['script_version'] = '1.0'
+        FABPreprocessor.CSV_NAME = 'fab_conv.csv'
         self.PREPROCESSOR = FABPreprocessor(self.PATH_TMP)
         self.PREPROCESSOR.preprocess()
         self.CONVERTER = FABObservationFactConverter()
