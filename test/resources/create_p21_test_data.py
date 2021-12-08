@@ -1,9 +1,11 @@
 # -*- coding: UTF-8 -*-.
 
-import numpy as np
-import random
 import csv
 import os
+import random
+from zipfile import ZipFile
+
+import numpy as np
 
 NUM_PATIENTS = 4000
 NUM_FACTS = NUM_PATIENTS * 2
@@ -129,78 +131,78 @@ def save_test_data_as_csv_to_local_folder(name_csv: str, dict_csv: dict):
 
 
 def create_test_FALL_max() -> dict:
-    fall = {'IK': ['261700001' for _ in range(NUM_PATIENTS)],
-            'Entlassender-Standort': ['770001000' for _ in range(NUM_PATIENTS)],
-            'Entgeltbereich': random.choices(['DRG', 'PSY'], weights=[0.66, 0.3], k=NUM_PATIENTS),
-            'KH-internes-Kennzeichen': [x + 1000 for x in range(NUM_PATIENTS)],
-            'Versicherten-ID': ['9999999999' for _ in range(NUM_PATIENTS)],
-            'Vertragskennzeichen-64b-Modellvorhaben': ['' for _ in range(NUM_PATIENTS)],
-            'IK-der-Krankenkasse': ['161556856' for _ in range(NUM_PATIENTS)],
-            'Geburtsjahr': np.random.randint(1900, 2020, NUM_PATIENTS),
-            'Geburtsmonat': np.random.randint(1, 12, NUM_PATIENTS),
-            'Geschlecht': random.choices(['m', 'w', 'd', 'x', ''], k=NUM_PATIENTS),
-            'PLZ': np.random.randint(10000, 99999, NUM_PATIENTS),
-            'Wohnort': ['Musterstadt' for _ in range(NUM_PATIENTS)],
-            'Aufnahmedatum': [generate_random_date('2020') for _ in range(NUM_PATIENTS)],
-            'Aufnahmeanlass': random.choices(['E', 'Z', 'N', 'R', 'V', 'A', 'G', 'B'], k=NUM_PATIENTS),
-            'Aufnahmegrund': ['0' + str(np.random.randint(100, 799)) for _ in range(NUM_PATIENTS)],
-            'Fallzusammenführung': random.choices(['J', 'N', ''], weights=[0.5, 0.25, 0.25], k=NUM_PATIENTS),
-            'Fallzusammenführungsgrund': random.choices(['OG', 'MD', 'KO', 'RU', 'WR', 'MF', 'PW', 'PM', 'ZW', 'ZM', ''], k=NUM_PATIENTS),
-            'Entlassungsdatum': [generate_random_date('2021') for _ in range(NUM_PATIENTS)],
-            'Entlassungsgrund': [np.random.randint(100, 999) for _ in range(NUM_PATIENTS)],
-            'Alter-in-Tagen-am-Aufnahmetag': ['0' for _ in range(NUM_PATIENTS)],
-            'Alter-in-Jahren-am-Aufnahmetag': ['' for _ in range(NUM_PATIENTS)],
-            'Aufnahmegewicht': ['0' for _ in range(NUM_PATIENTS)],
-            'Patientennummer': ['P' + str(x + 1000) for x in range(NUM_PATIENTS)],
-            'Interkurrente-Dialysen': ['' for _ in range(NUM_PATIENTS)],
-            'Beatmungsstunden': [np.random.randint(0, 10) for _ in range(NUM_PATIENTS)],
-            'Behandlungsbeginn-vorstationär': ['20190101' for _ in range(NUM_PATIENTS)],
-            'Behandlungstage-vorstationär': [np.random.randint(0, 365) for _ in range(NUM_PATIENTS)],
-            'Behandlungsende-nachstationär': ['20220101' for _ in range(NUM_PATIENTS)],
-            'Behandlungstage-nachstationär': [np.random.randint(0, 365) for _ in range(NUM_PATIENTS)],
-            'IK-Verlegungs-KH': ['' for _ in range(NUM_PATIENTS)],
+    fall = {'IK':                                      ['261700001' for _ in range(NUM_PATIENTS)],
+            'Entlassender-Standort':                   ['770001000' for _ in range(NUM_PATIENTS)],
+            'Entgeltbereich':                          random.choices(['DRG', 'PSY'], weights=[0.66, 0.3], k=NUM_PATIENTS),
+            'KH-internes-Kennzeichen':                 [x + 1000 for x in range(NUM_PATIENTS)],
+            'Versicherten-ID':                         ['9999999999' for _ in range(NUM_PATIENTS)],
+            'Vertragskennzeichen-64b-Modellvorhaben':  ['' for _ in range(NUM_PATIENTS)],
+            'IK-der-Krankenkasse':                     ['161556856' for _ in range(NUM_PATIENTS)],
+            'Geburtsjahr':                             np.random.randint(1900, 2020, NUM_PATIENTS),
+            'Geburtsmonat':                            np.random.randint(1, 12, NUM_PATIENTS),
+            'Geschlecht':                              random.choices(['m', 'w', 'd', 'x', ''], k=NUM_PATIENTS),
+            'PLZ':                                     np.random.randint(10000, 99999, NUM_PATIENTS),
+            'Wohnort':                                 ['Musterstadt' for _ in range(NUM_PATIENTS)],
+            'Aufnahmedatum':                           [generate_random_date('2020') for _ in range(NUM_PATIENTS)],
+            'Aufnahmeanlass':                          random.choices(['E', 'Z', 'N', 'R', 'V', 'A', 'G', 'B'], k=NUM_PATIENTS),
+            'Aufnahmegrund':                           ['0' + str(np.random.randint(100, 799)) for _ in range(NUM_PATIENTS)],
+            'Fallzusammenführung':                     random.choices(['J', 'N', ''], weights=[0.5, 0.25, 0.25], k=NUM_PATIENTS),
+            'Fallzusammenführungsgrund':               random.choices(['OG', 'MD', 'KO', 'RU', 'WR', 'MF', 'PW', 'PM', 'ZW', 'ZM', ''], k=NUM_PATIENTS),
+            'Entlassungsdatum':                        [generate_random_date('2021') for _ in range(NUM_PATIENTS)],
+            'Entlassungsgrund':                        [np.random.randint(100, 999) for _ in range(NUM_PATIENTS)],
+            'Alter-in-Tagen-am-Aufnahmetag':           ['0' for _ in range(NUM_PATIENTS)],
+            'Alter-in-Jahren-am-Aufnahmetag':          ['' for _ in range(NUM_PATIENTS)],
+            'Aufnahmegewicht':                         ['0' for _ in range(NUM_PATIENTS)],
+            'Patientennummer':                         ['P' + str(x + 1000) for x in range(NUM_PATIENTS)],
+            'Interkurrente-Dialysen':                  ['' for _ in range(NUM_PATIENTS)],
+            'Beatmungsstunden':                        [np.random.randint(0, 10) for _ in range(NUM_PATIENTS)],
+            'Behandlungsbeginn-vorstationär':          ['20190101' for _ in range(NUM_PATIENTS)],
+            'Behandlungstage-vorstationär':            [np.random.randint(0, 365) for _ in range(NUM_PATIENTS)],
+            'Behandlungsende-nachstationär':           ['20220101' for _ in range(NUM_PATIENTS)],
+            'Behandlungstage-nachstationär':           [np.random.randint(0, 365) for _ in range(NUM_PATIENTS)],
+            'IK-Verlegungs-KH':                        ['' for _ in range(NUM_PATIENTS)],
             'Belegungstage-in-anderem-Entgeltbereich': ['0' for _ in range(NUM_PATIENTS)],
-            'Beurlaubungstage-PSY': ['0' for _ in range(NUM_PATIENTS)],
-            'Kennung-Besonderer-Fall-Modellvorhaben': ['' for _ in range(NUM_PATIENTS)],
-            'Verweildauer-Intensiv': [np.random.randint(0, 10) for _ in range(NUM_PATIENTS)]}
+            'Beurlaubungstage-PSY':                    ['0' for _ in range(NUM_PATIENTS)],
+            'Kennung-Besonderer-Fall-Modellvorhaben':  ['' for _ in range(NUM_PATIENTS)],
+            'Verweildauer-Intensiv':                   [np.random.randint(0, 10) for _ in range(NUM_PATIENTS)]}
     return fall
 
 
 def create_test_FALL_empty() -> dict:
-    fall = {'IK': '',
-            'Entlassender-Standort': '',
-            'Entgeltbereich': '',
-            'KH-internes-Kennzeichen': '',
-            'Versicherten-ID': '',
-            'Vertragskennzeichen-64b-Modellvorhaben': '',
-            'IK-der-Krankenkasse': '',
-            'Geburtsjahr': '',
-            'Geburtsmonat': '',
-            'Geschlecht': '',
-            'PLZ': '',
-            'Wohnort': '',
-            'Aufnahmedatum': '',
-            'Aufnahmeanlass': '',
-            'Aufnahmegrund': '',
-            'Fallzusammenführung': '',
-            'Fallzusammenführungsgrund': '',
-            'Entlassungsdatum': '',
-            'Entlassungsgrund': '',
-            'Alter-in-Tagen-am-Aufnahmetag': '',
-            'Alter-in-Jahren-am-Aufnahmetag': '',
-            'Aufnahmegewicht': '',
-            'Patientennummer': '',
-            'Interkurrente-Dialysen': '',
-            'Beatmungsstunden': '',
-            'Behandlungsbeginn-vorstationär': '',
-            'Behandlungstage-vorstationär': '',
-            'Behandlungsende-nachstationär': '',
-            'Behandlungstage-nachstationär': '',
-            'IK-Verlegungs-KH': '',
+    fall = {'IK':                                      '',
+            'Entlassender-Standort':                   '',
+            'Entgeltbereich':                          '',
+            'KH-internes-Kennzeichen':                 '',
+            'Versicherten-ID':                         '',
+            'Vertragskennzeichen-64b-Modellvorhaben':  '',
+            'IK-der-Krankenkasse':                     '',
+            'Geburtsjahr':                             '',
+            'Geburtsmonat':                            '',
+            'Geschlecht':                              '',
+            'PLZ':                                     '',
+            'Wohnort':                                 '',
+            'Aufnahmedatum':                           '',
+            'Aufnahmeanlass':                          '',
+            'Aufnahmegrund':                           '',
+            'Fallzusammenführung':                     '',
+            'Fallzusammenführungsgrund':               '',
+            'Entlassungsdatum':                        '',
+            'Entlassungsgrund':                        '',
+            'Alter-in-Tagen-am-Aufnahmetag':           '',
+            'Alter-in-Jahren-am-Aufnahmetag':          '',
+            'Aufnahmegewicht':                         '',
+            'Patientennummer':                         '',
+            'Interkurrente-Dialysen':                  '',
+            'Beatmungsstunden':                        '',
+            'Behandlungsbeginn-vorstationär':          '',
+            'Behandlungstage-vorstationär':            '',
+            'Behandlungsende-nachstationär':           '',
+            'Behandlungstage-nachstationär':           '',
+            'IK-Verlegungs-KH':                        '',
             'Belegungstage-in-anderem-Entgeltbereich': '',
-            'Beurlaubungstage-PSY': '',
-            'Kennung-Besonderer-Fall-Modellvorhaben': '',
-            'Verweildauer-Intensiv': ''}
+            'Beurlaubungstage-PSY':                    '',
+            'Kennung-Besonderer-Fall-Modellvorhaben':  '',
+            'Verweildauer-Intensiv':                   ''}
     return fall
 
 
@@ -232,34 +234,47 @@ def create_test_FALL_no_optional_cols() -> dict:
 
 
 def create_test_FAB_max() -> dict:
-    fab = {'IK': ['261700001' for _ in range(NUM_FACTS)],
-           'Entlassender-Standort': ['770001000' for _ in range(NUM_FACTS)],
-           'Entgeltbereich': random.choices(['DRG', 'PSY'], weights=[0.66, 0.3], k=NUM_FACTS),
-           'KH-internes-Kennzeichen': np.random.randint(1000, 4000, NUM_FACTS),
+    fab = {'IK':                            ['261700001' for _ in range(NUM_FACTS)],
+           'Entlassender-Standort':         ['770001000' for _ in range(NUM_FACTS)],
+           'Entgeltbereich':                random.choices(['DRG', 'PSY'], weights=[0.66, 0.3], k=NUM_FACTS),
+           'KH-internes-Kennzeichen':       np.random.randint(1000, 4000, NUM_FACTS),
            'Standortnummer-Behandlungsort': ['770001000' for _ in range(NUM_FACTS)],
-           'Fachabteilung': [random.choice(['HA', 'BA', 'BE']) + str(np.random.randint(1000, 9999)) for _ in range(NUM_FACTS)],
-           'FAB-Aufnahmedatum': [generate_random_date('2020') for _ in range(NUM_FACTS)],
-           'FAB-Entlassungsdatum': [generate_random_date('2021') for _ in range(NUM_FACTS)],
-           'Kennung-Intensivbett': random.choices(['J', 'N'], k=NUM_FACTS)}
+           'Fachabteilung':                 [random.choice(['HA', 'BA', 'BE']) + str(np.random.randint(1000, 9999)) for _ in range(NUM_FACTS)],
+           'FAB-Aufnahmedatum':             [generate_random_date('2020') for _ in range(NUM_FACTS)],
+           'FAB-Entlassungsdatum':          [generate_random_date('2021') for _ in range(NUM_FACTS)],
+           'Kennung-Intensivbett':          random.choices(['J', 'N'], k=NUM_FACTS)}
     return fab
 
 
 def create_test_FAB_empty() -> dict:
-    fab = {'IK': '',
-           'Entlassender-Standort': '',
-           'Entgeltbereich': '',
-           'KH-internes-Kennzeichen': '',
+    fab = {'IK':                            '',
+           'Entlassender-Standort':         '',
+           'Entgeltbereich':                '',
+           'KH-internes-Kennzeichen':       '',
            'Standortnummer-Behandlungsort': '',
-           'Fachabteilung': '',
-           'FAB-Aufnahmedatum': '',
-           'FAB-Entlassungsdatum': '',
-           'Kennung-Intensivbett': ''}
+           'Fachabteilung':                 '',
+           'FAB-Aufnahmedatum':             '',
+           'FAB-Entlassungsdatum':          '',
+           'Kennung-Intensivbett':          ''}
+    return fab
+
+
+def create_test_FAB_alt() -> dict:
+    fab = {'IK':                            '',
+           'Entlassender-Standort':         '',
+           'Entgeltbereich':                '',
+           'KH-internes-Kennzeichen':       '',
+           'Standortnummer-Behandlungsort': '',
+           'FAB':                           '',
+           'FAB-Aufnahmedatum':             '',
+           'FAB-Entlassungsdatum':          '',
+           'Kennung-Intensivbett':          ''}
     return fab
 
 
 def create_test_FAB_missing_cols() -> dict:
     fab = create_test_FAB_max()
-    del fab['Fachabteilung']
+    del fab['FAB-Aufnahmedatum']
     return fab
 
 
@@ -273,34 +288,50 @@ def create_test_FAB_no_optional_cols() -> dict:
 
 
 def create_test_ICD_max() -> dict:
-    icd = {'IK': ['261700001' for _ in range(NUM_FACTS)],
-           'Entlassender-Standort': ['770001000' for _ in range(NUM_FACTS)],
-           'Entgeltbereich': random.choices(['DRG', 'PSY'], weights=[0.66, 0.3], k=NUM_FACTS),
+    icd = {'IK':                      ['261700001' for _ in range(NUM_FACTS)],
+           'Entlassender-Standort':   ['770001000' for _ in range(NUM_FACTS)],
+           'Entgeltbereich':          random.choices(['DRG', 'PSY'], weights=[0.66, 0.3], k=NUM_FACTS),
            'KH-internes-Kennzeichen': np.random.randint(1000, 4000, NUM_FACTS),
-           'Diagnoseart': random.choices(['HD', 'ND'], k=NUM_FACTS),
-           'ICD-Version': ['2019' for _ in range(NUM_FACTS)],
-           'ICD-Kode': random.choices(CODES_ICD, k=NUM_FACTS),
-           'Lokalisation': random.choices(['R', 'L', 'B', ''], k=NUM_FACTS),
-           'Diagnosensicherheit': random.choices(['A', 'V', 'Z', 'G', ''], k=NUM_FACTS),
-           'Sekundär-Kode': random.choices(CODES_ICD, k=NUM_FACTS),
-           'Lokalisation.1': random.choices(['R', 'L', 'B', ''], k=NUM_FACTS),
-           'Diagnosensicherheit.1': random.choices(['A', 'V', 'Z', 'G', ''], k=NUM_FACTS)}
+           'Diagnoseart':             random.choices(['HD', 'ND'], k=NUM_FACTS),
+           'ICD-Version':             ['2019' for _ in range(NUM_FACTS)],
+           'ICD-Kode':                random.choices(CODES_ICD, k=NUM_FACTS),
+           'Lokalisation':            random.choices(['R', 'L', 'B', ''], k=NUM_FACTS),
+           'Diagnosensicherheit':     random.choices(['A', 'V', 'Z', 'G', ''], k=NUM_FACTS),
+           'Sekundär-Kode':           random.choices(CODES_ICD, k=NUM_FACTS),
+           'Lokalisation.1':          random.choices(['R', 'L', 'B', ''], k=NUM_FACTS),
+           'Diagnosensicherheit.1':   random.choices(['A', 'V', 'Z', 'G', ''], k=NUM_FACTS)}
     return icd
 
 
 def create_test_ICD_empty() -> dict:
-    icd = {'IK': '',
-           'Entlassender-Standort': '',
-           'Entgeltbereich': '',
-           'KH-internes-Kennzeichen': '',
-           'Diagnoseart': '',
-           'ICD-Version': '',
-           'ICD-Kode': '',
-           'Lokalisation': '',
-           'Diagnosensicherheit': '',
-           'Sekundär-Kode': '',
-           'Sekundär-Lokalisation': '',
+    icd = {'IK':                           '',
+           'Entlassender-Standort':        '',
+           'Entgeltbereich':               '',
+           'KH-internes-Kennzeichen':      '',
+           'Diagnoseart':                  '',
+           'ICD-Version':                  '',
+           'ICD-Kode':                     '',
+           'Lokalisation':                 '',
+           'Diagnosensicherheit':          '',
+           'Sekundär-Kode':                '',
+           'Sekundär-Lokalisation':        '',
            'Sekundär-Diagnosensicherheit': ''}
+    return icd
+
+
+def create_test_ICD_error() -> dict:
+    icd = {'IK':                      '',
+           'Entlassender-Standort':   '',
+           'Entgeltbereich':          '',
+           'KH-internes-Kennzeichen': '',
+           'Diagnoseart':             '',
+           'ICD-Version':             '',
+           'ICD-Kode':                '',
+           'Lokalisation':            '',
+           'Diagnosensicherheit':     '',
+           'Sekundär-Kode':           '',
+           'Lokalisation.1':          '',
+           'Lokalisation.2':          ''}
     return icd
 
 
@@ -336,32 +367,32 @@ def create_test_ICD_with_sek() -> dict:
 
 
 def create_test_OPS_max() -> dict:
-    ops = {'IK': ['261700001' for _ in range(NUM_FACTS)],
-           'Entlassender-Standort': ['770001000' for _ in range(NUM_FACTS)],
-           'Entgeltbereich': random.choices(['DRG', 'PSY'], weights=[0.66, 0.3], k=NUM_FACTS),
+    ops = {'IK':                      ['261700001' for _ in range(NUM_FACTS)],
+           'Entlassender-Standort':   ['770001000' for _ in range(NUM_FACTS)],
+           'Entgeltbereich':          random.choices(['DRG', 'PSY'], weights=[0.66, 0.3], k=NUM_FACTS),
            'KH-internes-Kennzeichen': np.random.randint(1000, 4000, NUM_FACTS),
-           'OPS-Version': ['2019' for _ in range(NUM_FACTS)],
-           'OPS-Kode': random.choices(CODES_OPS, k=NUM_FACTS),
-           'Lokalisation': random.choices(['R', 'L', 'B', ''], k=NUM_FACTS),
-           'OPS-Datum': [generate_random_date('2020') for _ in range(NUM_FACTS)],
-           'Belegoperateur': ['N' for _ in range(NUM_FACTS)],
-           'Beleganästhesist': ['N' for _ in range(NUM_FACTS)],
-           'Beleghebamme': ['N' for _ in range(NUM_FACTS)]}
+           'OPS-Version':             ['2019' for _ in range(NUM_FACTS)],
+           'OPS-Kode':                random.choices(CODES_OPS, k=NUM_FACTS),
+           'Lokalisation':            random.choices(['R', 'L', 'B', ''], k=NUM_FACTS),
+           'OPS-Datum':               [generate_random_date('2020') for _ in range(NUM_FACTS)],
+           'Belegoperateur':          ['N' for _ in range(NUM_FACTS)],
+           'Beleganästhesist':        ['N' for _ in range(NUM_FACTS)],
+           'Beleghebamme':            ['N' for _ in range(NUM_FACTS)]}
     return ops
 
 
 def create_test_OPS_empty() -> dict:
-    ops = {'IK': '',
-           'Entlassender-Standort': '',
-           'Entgeltbereich': '',
+    ops = {'IK':                      '',
+           'Entlassender-Standort':   '',
+           'Entgeltbereich':          '',
            'KH-internes-Kennzeichen': '',
-           'OPS-Version': '',
-           'OPS-Kode': '',
-           'Lokalisation': '',
-           'OPS-Datum': '',
-           'Belegoperateur': '',
-           'Beleganästhesist': '',
-           'Beleghebamme': ''}
+           'OPS-Version':             '',
+           'OPS-Kode':                '',
+           'Lokalisation':            '',
+           'OPS-Datum':               '',
+           'Belegoperateur':          '',
+           'Beleganästhesist':        '',
+           'Beleghebamme':            ''}
     return ops
 
 
@@ -391,6 +422,65 @@ def add_missing_values(dict_csv: dict, column: str, index: int) -> dict:
     return dict_csv
 
 
+def create_test_FALL_conversion() -> dict:
+    fall = {'KH-internes-Kennzeichen':        ['4000', '4001', '4002', '4003', '4004', '4005', '4006'],
+            'IK-der-Krankenkasse':            ['161556856', '', '', '', '', '', ''],
+            'Geburtsjahr':                    ['2000', '', '', '', '', '', ''],
+            'Geschlecht':                     ['m', '', '', '', '', '', ''],
+            'PLZ':                            ['12345', '', '', '', '', '', ''],
+            'Aufnahmedatum':                  ['202001010000' for _ in range(8)],
+            'Aufnahmeanlass':                 ['N' for _ in range(8)],
+            'Aufnahmegrund':                  ['1010' for _ in range(8)],
+            'Fallzusammenführung':            ['J', '', 'N', 'J', '', '', ''],
+            'Fallzusammenführungsgrund':      ['OG', '', 'OG', '', '', '', ''],
+            'Entlassungsdatum':               ['202101010000', '', '', '', '202101010000', '', ''],
+            'Entlassungsgrund':               ['179', '', '', '', '', '179', ''],
+            'Beatmungsstunden':               ['500,50', '', '', '', '', '', ''],
+            'Behandlungsbeginn-vorstationär': ['20190101', '', '', '', '', '', '20190101'],
+            'Behandlungstage-vorstationär':   ['365', '', '', '', '', '', ''],
+            'Behandlungsende-nachstationär':  ['20220101', '', '', '', '', '', '20220101'],
+            'Behandlungstage-nachstationär':  ['365', '', '', '', '', '', ''],
+            'Verweildauer-Intensiv':          ['100,50', '', '', '', '', '', '']}
+    return fall
+
+
+def create_test_FAB_conversion() -> dict:
+    fab = {'KH-internes-Kennzeichen': ['4000', '4000', '4001', '4001', '4001'],
+           'Fachabteilung':           ['HA0001', 'BE0001', 'HA0001', 'BE0001', 'BE0002'],
+           'FAB-Aufnahmedatum':       ['202001010000', '202201010000', '202001010000', '202201010000', '202301010000'],
+           'FAB-Entlassungsdatum':    ['202101010000', '', '202101010000', '', ''],
+           'Kennung-Intensivbett':    ['J', '', 'J', 'N', 'N']}
+    return fab
+
+
+def create_test_ICD_conversion() -> dict:
+    icd = {'KH-internes-Kennzeichen': ['4000', '4000', '4000', '4000', '4001', '4001', '4001'],
+           'Diagnoseart':             ['HD', 'ND', 'ND', 'ND', 'HD', 'HD', 'HD'],
+           'ICD-Version':             ['2019' for _ in range(8)],
+           'ICD-Kode':                ['F2424', 'G25.25', 'J90', 'J21.', 'V97.33XD', 'V0001XD', 'Y93D'],
+           'Lokalisation':            ['L', '', 'R', '', '', '', ''],
+           'Diagnosensicherheit':     ['A', 'Z', '', '', '', '', ''],
+           'Sekundär-Kode':           ['', '', '', '', 'A22.22', 'B11.11', 'C3333'],
+           'Lokalisation.1':          ['', '', '', '', 'B', '', 'L'],
+           'Diagnosensicherheit.1':   ['', '', '', '', 'A', 'Z', '']}
+    return icd
+
+
+def create_test_OPS_conversion() -> dict:
+    ops = {'KH-internes-Kennzeichen': ['4000', '4000', '4000', '4000', '4001', '4001', '4001'],
+           'OPS-Version':             ['2019' for _ in range(8)],
+           'OPS-Kode':                ['964922', '9-64922', '9649.22', '9-649.22', '1-5020', '1-501', '1051'],
+           'Lokalisation':            ['B', 'L', 'R', '', '', '', ''],
+           'OPS-Datum':               ['202001010000' for _ in range(8)]}
+    return ops
+
+
+def clean_up():
+    csv_files = [item for item in os.listdir() if item.endswith('.csv')]
+    for csv_file in csv_files:
+        os.remove(csv_file)
+
+
 if __name__ == '__main__':
     fall = create_test_FALL_max()
     fall = add_missing_values(fall, 'Aufnahmedatum', 1021)
@@ -406,6 +496,7 @@ if __name__ == '__main__':
     fab = add_missing_values(fab, 'Kennung-Intensivbett', 1023)
     save_test_data_as_csv_to_local_folder('FAB.csv', fab)
     save_test_data_as_csv_to_local_folder('FAB_empty.csv', create_test_FAB_empty())
+    save_test_data_as_csv_to_local_folder('FAB_alt.csv', create_test_FAB_alt())
     save_test_data_as_csv_to_local_folder('FAB_missing_cols.csv', create_test_FAB_missing_cols())
     save_test_data_as_csv_to_local_folder('FAB_no_optional_cols.csv', create_test_FAB_no_optional_cols())
     icd = create_test_ICD_max()
@@ -414,6 +505,7 @@ if __name__ == '__main__':
     icd = add_missing_values(icd, 'ICD-Kode', 1023)
     save_test_data_as_csv_to_local_folder('ICD.csv', icd)
     save_test_data_as_csv_to_local_folder('ICD_empty.csv', create_test_ICD_empty())
+    save_test_data_as_csv_to_local_folder('ICD_error.csv', create_test_ICD_error())
     save_test_data_as_csv_to_local_folder('ICD_missing_cols.csv', create_test_ICD_missing_cols())
     save_test_data_as_csv_to_local_folder('ICD_no_optional_cols.csv', create_test_ICD_no_optional_cols())
     save_test_data_as_csv_to_local_folder('ICD_no_sek.csv', create_test_ICD_no_sek())
@@ -426,3 +518,46 @@ if __name__ == '__main__':
     save_test_data_as_csv_to_local_folder('OPS_empty.csv', create_test_OPS_empty())
     save_test_data_as_csv_to_local_folder('OPS_missing_cols.csv', create_test_OPS_missing_cols())
     save_test_data_as_csv_to_local_folder('OPS_no_optional_cols.csv', create_test_OPS_no_optional_cols())
+
+    save_test_data_as_csv_to_local_folder('FALL_conv.csv', create_test_FALL_conversion())
+    save_test_data_as_csv_to_local_folder('FAB_conv.csv', create_test_FAB_conversion())
+    save_test_data_as_csv_to_local_folder('ICD_conv.csv', create_test_ICD_conversion())
+    save_test_data_as_csv_to_local_folder('OPS_conv.csv', create_test_OPS_conversion())
+
+    with ZipFile('p21_verification.zip', 'w') as file:
+        file.write('FALL.csv')
+        file.write('FALL_empty.csv')
+        file.write('FALL_no_optional_cols.csv')
+        file.write('FALL_missing_cols.csv')
+        file.write('FAB.csv')
+        file.write('FAB_empty.csv')
+        file.write('FAB_no_optional_cols.csv')
+        file.write('FAB_missing_cols.csv')
+        file.write('ICD.csv')
+        file.write('ICD_empty.csv')
+        file.write('ICD_no_optional_cols.csv')
+        file.write('ICD_missing_cols.csv')
+        file.write('ICD_no_sek.csv')
+        file.write('ICD_with_sek.csv')
+        file.write('OPS.csv')
+        file.write('OPS_empty.csv')
+        file.write('OPS_no_optional_cols.csv')
+        file.write('OPS_missing_cols.csv')
+
+    with ZipFile('p21_preprocess.zip', 'w') as file:
+        file.write('FALL.csv')
+        file.write('FAB.csv')
+        file.write('FAB_alt.csv')
+        file.write('ICD.csv')
+        file.write('ICD_error.csv')
+        file.write('ICD_no_sek.csv')
+        file.write('ICD_with_sek.csv')
+        file.write('OPS.csv')
+
+    with ZipFile('p21_conversion.zip', 'w') as file:
+        file.write('FALL_conv.csv')
+        file.write('FAB_conv.csv')
+        file.write('ICD_conv.csv')
+        file.write('OPS_conv.csv')
+
+    clean_up()
