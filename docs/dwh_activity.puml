@@ -1,20 +1,90 @@
 @startuml
-'https://plantuml.com/activity-diagram-beta
-
 start
-:File verification by script;
-if (successful?) then (yes)
-  :Print verification results;
-  :File import by script;
-  if (successful?) then (yes)
-    :Print import results;
-    stop
-  else (no)
-    :Print error log;
-    end
-  endif
+
+if (is file path valid?) then (yes)
 else (no)
-:Print error log;
-end
+#pink:fiel path is not valid;
+stop
 endif
+
+if (is file a zip file?) then (yes)
+else (no)
+#pink:file is not a zip file;
+stop
+endif
+
+:create tmp folder;
+:extract zip to tmp folder;
+:rename files in tmp folder to lowercase;
+
+partition "for all mandatory csv files" {
+if (is csv in folder?) then (yes)
+    :preprocess csv file;
+    if (verify csv column names) then (successful)
+    else (failed)
+        #pink:some csv columns are missing;
+        stop
+    endif
+else (no)
+    #pink:mandatory csv file is missing;
+    stop
+endif
+}
+
+partition "for all optional csv files" {
+if (is csv in folder?) then (yes)
+    :preprocess csv file;
+    if (verify csv column names) then (successful)
+    else (failed)
+        #pink:some csv columns are missing;
+        stop
+    endif
+else (no)
+endif
+}
+
+:validate encounter data in csv;
+:get unique ids of all valid encounter from  csv;
+
+if (valid encounter found?) then (yes)
+else (no)
+#pink:no valid encounter found;
+stop
+endif
+
+:get billing ids of all encounter in database;
+
+if (encounter with billing id found?) then (yes)
+else (no)
+#pink:try matching by encounter id;
+:get encounter ids of all encounter in database;
+if (encounter with encounter id found?) then (yes)
+else (no)
+    #pink:invalid encounter in database;
+    stop
+endif
+endif
+
+:hash ids of valid encounter from csv;
+:match ids between csv and database;
+
+if (are there matches?) then (yes)
+else (no)
+#pink:no encounter could be matched;
+stop
+endif
+
+partition "only during import" {
+:create a mapping table for matched encounter;
+partition "for all valid csv files" {
+:divide csv file into chunks;
+:filter chunks for matched encounter;
+:convert csv data of matched encounter to observation facts;
+:upload observation facts to database;
+}
+}
+
+:print results;
+:remove tmp folder;
+end
 @enduml
