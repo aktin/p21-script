@@ -11,7 +11,7 @@ The script is intended to import csv files with inpatient treatment data accordi
 The import process is divided into two steps: A verification of the files (`verify_file`) to be imported and the file import itself (`import_file`). The script can only be executed with one process at a time. The processes
 look like following:
 
-![sequence diagram](./docs/dwh_activity.png)
+![sequence diagram](./docs/activity.png)
 
 An import is currently only possible of the four files `fall.csv`, `fab.csv`, `icd.csv` and `ops.csv`. The zip archive must contain at least the file `fall.csv`. The other csv files are optional. All other files will be
 ignored by the import script.
