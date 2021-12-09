@@ -1,5 +1,6 @@
 @startuml
 'https://plantuml.com/class-diagram
+hide methods
 
 class ZipFileExtractor {
 * checks integrity of given zip file path
@@ -20,13 +21,16 @@ abstract class CSVPreprocessor {
 }
 class FALLPreprocessor {
 }
+hide FALLPreprocessor members
 class FABPreprocessor {
 }
+hide FABPreprocessor members
 class ICDPreprocessor {
 * adds columns for secondary diagnoses, if not found in csv
 }
 class OPSPreprocessor {
 }
+hide OPSPreprocessor members
 abstract class CSVFileVerifier {
 * checks integrity of given csv file with p21 requirements
 ** checks existence of csv file
@@ -38,22 +42,29 @@ class FALLVerifier {
 }
 class FABVerifier {
 }
+hide FABVerifier members
 class ICDVerifier {
 }
+hide ICDVerifier members
 class OPSVerifier {
 }
+hide OPSVerifier members
 abstract class CSVObservationFactConverter {
 * converts a row from a csv file to a list of
 observation facts
 }
 class FALLObservationFactConverter {
 }
+hide FALLObservationFactConverter members
 class FABObservationFactConverter {
 }
+hide FABObservationFactConverter members
 class ICDObservationFactConverter {
 }
+hide ICDObservationFactConverter members
 class OPSObservationFactConverter {
 }
+hide OPSObservationFactConverter members
 class ObservationFactInstanceCounter {
 * keeps track of reappearing encounters in csv
 }
@@ -104,10 +115,13 @@ upload
 }
 class FABObservationFactUploadManager {
 }
+hide FABObservationFactUploadManager members
 class ICDObservationFactUploadManager{
 }
+hide ICDObservationFactUploadManager members
 class OPSObservationFactUploadManager{
 }
+hide OPSObservationFactUploadManager members
 
 CSVReader <|-- CSVPreprocessor
 CSVPreprocessor <|-- FALLPreprocessor

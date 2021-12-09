@@ -5,22 +5,70 @@ A Python script to import inpatient treatment data according to §21 KHEntgG int
 The script is intended to import csv files with inpatient treatment data according to §21 KHEntG into the local i2b2 database of the AKTIN DWH. All data is uploaded into the [`observation_fact`](https://community.i2b2.org/wiki/display/ServerSideDesign/OBSERVATION_FACT+Table) table of i2b2. Following requirements must be met by the csv files:
 * all csv files must be uploaded together as a zip archive
 * all files must be encoded in UTF-8
-* the semicolon is used as a separator for data fields
-* the comma is used as a separator for decimals
+* the semicolon `;` is used as a separator for data fields
+* the comma `,` is used as a separator for decimals
 
-The import process is divided into two steps: A verification of the files to be uploaded and the file upload itself. The script can only be executed with one process at a time. On the AKTIN DWH, the import process looks like following:
+The import process is divided into two steps: A verification of the files (`verify_file`) to be imported and the file import itself (`import_file`). The script can only be executed with one process at a time. The processes
+look like following:
 
 ![sequence diagram](./docs/dwh_activity.png)
 
-An import is currently only possible of the four files `fall.csv`, `fab.csv`, `icd.csv` and `ops.csv`. The zip archive must contain at least the file `fall.csv`. The other csv files are optional. All other files will be ignored by the import script.
+An import is currently only possible of the four files `fall.csv`, `fab.csv`, `icd.csv` and `ops.csv`. The zip archive must contain at least the file `fall.csv`. The other csv files are optional. All other files will be
+ignored by the import script.
 
-Only valid encounter of a csv file are imported, i.e. the necessary fields of an encounter are complete and correspond to the formatting specifications set by the [InEK GmbH](https://www.g-drg.de/Datenlieferung_gem._21_KHEntgG). A distinction is made between mandatory and optional fields. An invalid mandatory field leads to the exclusion of the whole encounter. An invalid optional field will be ignored during the import.
+Of the columns contained in the individual csv files, only selected ones are imported. The following table shows the importable columns. Columns that are not listed are ignored.
 
-As the inpatient treatment data is only an extension of the routine documentation of the emergency departments stored in the AKTIN DWH, all valid encounters from the p21 data must be matched with existing encounters from the routine documentation. Matching with existing encounters is done using the field `KH-internes-Kennzeichen` of the csv files and the field `billing id` of the imported CDA documents.
+| CSV file | Column/§21-Variable | Mandatory variable? |
+| :-------------: |:-------------| :-----:|
+| fall.csv | KH-internes-Kennzeichen | yes |
+| fall.csv | IK-der-Krankenkasse | |
+| fall.csv | Geburtsjahr | |
+| fall.csv | Geschlecht | |
+| fall.csv | PLZ | |
+| fall.csv | Aufnahmedatum    |  yes |
+| fall.csv | Aufnahmegrund    |  yes |
+| fall.csv | Aufnahmeanlass    |  yes |
+| fall.csv | Fallzusammenführung    | |
+| fall.csv | Fallzusammenführungsgrund    | |
+| fall.csv | Verweildauer-intensiv    | |
+| fall.csv | Entlassungsdatum    | |
+| fall.csv | Entlassungsgrund    | |
+| fall.csv | Beatmungsstunden    | |
+| fall.csv | Behandlungsbeginn-vorstationär    | |
+| fall.csv | Behandlungstage-vorstationär    | |
+| fall.csv | Behandlungsende-nachstationär    | |
+| fall.csv | Behandlungstage-nachstationär    | |
+| fab.csv  | KH-internes-Kennzeichen    |  yes |
+| fab.csv  | Fachabteilung    |  yes |
+| fab.csv  | FAB-Aufnahmedatum    |  yes |
+| fab.csv  | FAB-Entlassungsdatum    | |
+| fab.csv  | Kennung-Intensivbett    |  yes |
+| icd.csv  | KH-internes-Kennzeichen    |  yes |
+| icd.csv  | Diagnoseart    |  yes |
+| icd.csv  | ICD-Version    |  yes |
+| icd.csv  | ICD-Kode    |  yes |
+| icd.csv  | Lokalisation    | |
+| icd.csv  | Diagnosensicherheit    | |
+| icd.csv  | Sekundär-Kode    | |
+| icd.csv  | Sekundär-Lokalisation    | |
+| icd.csv  | Sekundär-Diagnosensicherheit    | |
+| ops.csv  | KH-internes-Kennzeichen    |  yes |
+| ops.csv  | OPS-Version    |  yes |
+| ops.csv  | OPS-Kode    |  yes |
+| ops.csv  | Lokalisation    | |
+| ops.csv  | OPS-Datum    |  yes |
+
+Only valid encounter of a csv file are imported, i.e. the necessary fields of an encounter are complete and correspond to the formatting specifications set by
+the [InEK GmbH](https://www.g-drg.de/Datenlieferung_gem._21_KHEntgG). A distinction is made between mandatory and optional fields. An invalid mandatory field leads to the exclusion of the whole encounter. An invalid optional
+field will be ignored during the import.
+
+As the inpatient treatment data is only an extension of the routine documentation of the emergency departments stored in the AKTIN DWH, all valid encounters from the §21 data must be matched with existing encounters from the
+routine documentation. Matching with existing encounters is done using the field `KH-internes-Kennzeichen` of the csv files and the field `billing id` (or alternatively `encounter id`) of the imported CDA documents.
 
 ## Usage
 
 The script is only suitable for usage on the AKTIN DWH V1.4 or higher. For the installation of the script on the AKTIN DWH, following steps are necessary:
+
 * Put the script on the server of your AKTIN DWH into the folder `/var/lib/aktin/import-script/`
 * Change the owner of the script to be `wildfly:wildfly`
 * Restart your AKTIN DWH
