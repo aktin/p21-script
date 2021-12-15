@@ -1,6 +1,7 @@
 @startuml
-'https://plantuml.com/class-diagram
 hide methods
+
+title __Diagram of p21-script__\n
 
 class ZipFileExtractor {
 * checks integrity of given zip file path
