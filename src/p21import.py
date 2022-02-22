@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*
 # Created on Wed Jan 20 11:36:55 2021
-# @VERSION=1.5.1
+# @VERSION=1.5.2
 # @VIEWNAME=P21-Importskript
 # @MIMETYPE=zip
 # @ID=p21
@@ -201,18 +201,23 @@ class CSVReader(ABC):
             encoding = chardet.detect(csv.read(5120))['encoding']
         return encoding
 
+    def save_df_as_csv(self, df_input: pd.DataFrame, path_output: str, encoding: str):
+        df_input.to_csv(path_output, sep=self.CSV_SEPARATOR, encoding=encoding, index=False)
+
 
 class CSVPreprocessor(CSVReader, ABC):
     """
     Preprocesses a given csv file to adjust it to the requirements for
     CSVFileVerifier/CSVObservationFactConverter/CSVObservationFactUploadManager.
     """
+    LEADING_ZEROS = 0
 
     def preprocess(self):
         header = self._get_csv_file_header_in_lowercase()
         header = self._remove_dashes_from_header(header)
         header += '\n'
         self._write_header_to_csv(header)
+        self._append_zeros_to_internal_id()
 
     def _get_csv_file_header_in_lowercase(self) -> str:
         df = pd.read_csv(self.PATH_CSV, nrows=0, index_col=None, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(self.PATH_CSV), dtype=str)
@@ -245,9 +250,35 @@ class CSVPreprocessor(CSVReader, ABC):
         list_header[idx_match[0]] = column_new
         return self.CSV_SEPARATOR.join(list_header)
 
+    def _append_zeros_to_internal_id(self):
+        path_parent = os.path.dirname(self.PATH_CSV)
+        path_dummy = os.path.sep.join([path_parent, 'dummy.csv'])
+        encoding = self.get_csv_encoding(self.PATH_CSV)
+        for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=encoding, dtype=str):
+            chunk['khinterneskennzeichen'] = chunk['khinterneskennzeichen'].apply(lambda x: ''.join([str('0' * self.LEADING_ZEROS), x]))
+            self.save_df_as_csv(chunk, path_dummy, encoding)
+        os.remove(self.PATH_CSV)
+        os.rename(path_dummy, self.PATH_CSV)
+
 
 class FALLPreprocessor(CSVPreprocessor):
     CSV_NAME = 'fall.csv'
+
+    def preprocess(self):
+        super().preprocess()
+        self.__append_zero_to_column_if_length_below_requirement('plz', 5)
+        self.__append_zero_to_column_if_length_below_requirement('aufnahmegrund', 4)
+
+    def __append_zero_to_column_if_length_below_requirement(self, column: str, length_required: int):
+        path_parent = os.path.dirname(self.PATH_CSV)
+        path_dummy = os.path.sep.join([path_parent, 'dummy.csv'])
+        encoding = self.get_csv_encoding(self.PATH_CSV)
+        for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=encoding, dtype=str):
+            chunk[column] = chunk[column].fillna('')
+            chunk[column] = chunk[column].apply(lambda x: x.rjust(length_required, '0') if len(x) == length_required - 1 else x)
+            self.save_df_as_csv(chunk, path_dummy, encoding)
+        os.remove(self.PATH_CSV)
+        os.rename(path_dummy, self.PATH_CSV)
 
 
 class FABPreprocessor(CSVPreprocessor):
@@ -259,6 +290,7 @@ class FABPreprocessor(CSVPreprocessor):
         header = self._rename_column_in_header(header, 'fab', 'fachabteilung')
         header += '\n'
         self._write_header_to_csv(header)
+        self._append_zeros_to_internal_id()
 
 
 class ICDPreprocessor(CSVPreprocessor):
@@ -278,6 +310,7 @@ class ICDPreprocessor(CSVPreprocessor):
             self._write_header_to_csv(header)
         else:
             self.__write_header_with_secondary_diagnoses_columns_to_csv(header)
+        self._append_zeros_to_internal_id()
 
     def __adjust_columns_for_secondary_diagnoses(self, header: str) -> str:
         index_sec = header.index('sekundärkode')
@@ -678,7 +711,7 @@ class ICDObservationFactConverter(CSVObservationFactConverter):
         if row_csv['sekundärkode']:
             num_instance = self.COUNTER_INSTANCE.add_row_instance_count(id_case)
             facts.extend(
-                self.__create_icd_sek_dicts(num_instance, row_csv['sekundärkode'], row_csv['icdkode'], row_csv['icdversion'], row_csv['sekundärlokalisation'], row_csv['sekundärdiagnosensicherheit']))
+                    self.__create_icd_sek_dicts(num_instance, row_csv['sekundärkode'], row_csv['icdkode'], row_csv['icdversion'], row_csv['sekundärlokalisation'], row_csv['sekundärdiagnosensicherheit']))
         return facts
 
     def __create_icd_dicts(self, num_instance: str, code: str, type_diag: str, version: str, localisation: str, certainty: str) -> list:
@@ -831,8 +864,8 @@ class EncounterInfoExtractorWithEncounterId(DatabaseExtractor):
             pat = db.Table('patient_mapping', db.MetaData(), autoload_with=self.ENGINE)
             opt = db.Table('optinout_patients', db.MetaData(), autoload_with=self.ENGINE)
             query = db.select([enc.c['encounter_ide'], enc.c['encounter_num'], pat.c['patient_num']]).select_from(
-                enc.join(pat, enc.c['patient_ide'] == pat.c['patient_ide']).join(opt, pat.c['patient_ide'] == opt.c['pat_psn'], isouter=True)).where(
-                db.or_(opt.c['study_id'] != 'AKTIN', opt.c['pat_psn'].is_(None)))
+                    enc.join(pat, enc.c['patient_ide'] == pat.c['patient_ide']).join(opt, pat.c['patient_ide'] == opt.c['pat_psn'], isouter=True)).where(
+                    db.or_(opt.c['study_id'] != 'AKTIN', opt.c['pat_psn'].is_(None)))
             df = self._stream_query_into_df(query)
             df.rename(columns={'encounter_ide': 'match_id'}, inplace=True)
             return df
@@ -854,8 +887,8 @@ class EncounterInfoExtractorWithBillingId(DatabaseExtractor):
             pat = db.Table('patient_mapping', db.MetaData(), autoload_with=self.ENGINE)
             opt = db.Table('optinout_patients', db.MetaData(), autoload_with=self.ENGINE)
             query = db.select([fact.c['tval_char'], fact.c['encounter_num'], fact.c['patient_num']]).select_from(
-                fact.join(pat, fact.c['patient_num'] == pat.c['patient_num']).join(opt, pat.c['patient_ide'] == opt.c['pat_psn'], isouter=True)).where(
-                db.and_(db.or_(opt.c['study_id'] != 'AKTIN', opt.c['pat_psn'].is_(None)), fact.c['concept_cd'] == 'AKTIN:Fallkennzeichen'))
+                    fact.join(pat, fact.c['patient_num'] == pat.c['patient_num']).join(opt, pat.c['patient_ide'] == opt.c['pat_psn'], isouter=True)).where(
+                    db.and_(db.or_(opt.c['study_id'] != 'AKTIN', opt.c['pat_psn'].is_(None)), fact.c['concept_cd'] == 'AKTIN:Fallkennzeichen'))
             df = self._stream_query_into_df(query)
             df.rename(columns={'tval_char': 'match_id'}, inplace=True)
             return df
@@ -1028,7 +1061,7 @@ class ObservationFactTableHandler(TableHandler):
         of this script.
         """
         query = db.select([self.TABLE.c['sourcesystem_cd']]).where(self.TABLE.c['encounter_num'] == str(num_enc)).where(self.TABLE.c['concept_cd'] == 'P21:SCRIPT').where(
-            self.TABLE.c['modifier_cd'] == 'scriptId').where(self.TABLE.c['provider_id'] == 'P21')
+                self.TABLE.c['modifier_cd'] == 'scriptId').where(self.TABLE.c['provider_id'] == 'P21')
         return self.CONNECTION.execute(query).fetchall()
 
     @staticmethod
