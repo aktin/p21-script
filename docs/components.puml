@@ -17,12 +17,14 @@ abstract class CSVReader {
 }
 abstract class CSVPreprocessor {
 * preprocesses a csv file to adapt it for verification/import
-** column names are lowercased
-** dashes in names are removed
+* column names are lowercased
+* dashes in names are removed
+* can append zeros to the front of internal id
 }
 class FALLPreprocessor {
+* appends zeros to the front of zipcode and
+admission reason if necessary
 }
-hide FALLPreprocessor members
 class FABPreprocessor {
 }
 hide FABPreprocessor members

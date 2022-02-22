@@ -233,6 +233,13 @@ def create_test_FALL_no_optional_cols() -> dict:
     return fall
 
 
+def create_test_FALL_missing_leading_zeros_in_plz_and_aufnahmegrund() -> dict:
+    fall = create_test_FALL_max()
+    fall['PLZ'] = [int(str(x)[1:]) for x in fall['PLZ']]
+    fall['Aufnahmegrund'] = [x[1:] for x in fall['Aufnahmegrund']]
+    return fall
+
+
 def create_test_FAB_max() -> dict:
     fab = {'IK':                            ['261700001' for _ in range(NUM_FACTS)],
            'Entlassender-Standort':         ['770001000' for _ in range(NUM_FACTS)],
@@ -524,6 +531,8 @@ if __name__ == '__main__':
     save_test_data_as_csv_to_local_folder('ICD_conv.csv', create_test_ICD_conversion())
     save_test_data_as_csv_to_local_folder('OPS_conv.csv', create_test_OPS_conversion())
 
+    save_test_data_as_csv_to_local_folder('FALL_missing_zeros.csv', create_test_FALL_missing_leading_zeros_in_plz_and_aufnahmegrund())
+
     with ZipFile('p21_verification.zip', 'w') as file:
         file.write('FALL.csv')
         file.write('FALL_empty.csv')
@@ -553,6 +562,7 @@ if __name__ == '__main__':
         file.write('ICD_no_sek.csv')
         file.write('ICD_with_sek.csv')
         file.write('OPS.csv')
+        file.write('FALL_missing_zeros.csv')
 
     with ZipFile('p21_conversion.zip', 'w') as file:
         file.write('FALL_conv.csv')
