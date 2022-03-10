@@ -150,6 +150,16 @@ class TestCSVPreprocessor(unittest.TestCase):
         self.assertEqual(count_rows_old, count_rows_new)
         FALLPreprocessor.LEADING_ZEROS = 0
 
+    def test_appending_zeros_to_missing_internal_id_FALL(self):
+        FALLPreprocessor.LEADING_ZEROS = 4
+        FALLPreprocessor.CSV_NAME = 'FALL_empty_internal_ids.csv'
+        fall = FALLPreprocessor(self.PATH_TMP)
+        fall.preprocess()
+        lengths = count_unique_value_length_in_column(fall, 'khinterneskennzeichen')
+        self.assertEqual(1, len(lengths))
+        self.assertEqual(4, lengths[0])
+        FALLPreprocessor.LEADING_ZEROS = 0
+
     def test_appending_zeros_to_internal_id_FAB(self):
         FABPreprocessor.LEADING_ZEROS = 8
         fab = FABPreprocessor(self.PATH_TMP)

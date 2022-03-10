@@ -255,6 +255,7 @@ class CSVPreprocessor(CSVReader, ABC):
         path_dummy = os.path.sep.join([path_parent, 'dummy.csv'])
         encoding = self.get_csv_encoding(self.PATH_CSV)
         for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=encoding, dtype=str):
+            chunk['khinterneskennzeichen'] = chunk['khinterneskennzeichen'].fillna('')
             chunk['khinterneskennzeichen'] = chunk['khinterneskennzeichen'].apply(lambda x: ''.join([str('0' * self.LEADING_ZEROS), x]))
             self.save_df_as_csv(chunk, path_dummy, encoding)
         os.remove(self.PATH_CSV)
