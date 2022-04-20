@@ -3,6 +3,8 @@ hide methods
 
 title __Diagram of p21-script__\n
 
+left to right direction
+
 class ZipFileExtractor {
 * checks integrity of given zip file path
 * extracts zip file to given folder
@@ -36,9 +38,9 @@ class OPSPreprocessor {
 hide OPSPreprocessor members
 abstract class CSVFileVerifier {
 * checks integrity of given csv file with p21 requirements
-** checks existence of csv file
-** checks existence of required columns
-** finds rows, where all columns fulfill p21 requirements
+- checks existence of csv file
+- checks existence of required columns
+- finds rows, where all columns fulfill p21 requirements
 }
 class FALLVerifier {
 * exits script if any check fails

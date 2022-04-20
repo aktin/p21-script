@@ -547,6 +547,8 @@ class CSVObservationFactConverter(ABC):
 
     @staticmethod
     def _convert_date_to_i2b2_format(date: str) -> str:
+        if date[8:10] == '24':
+            date = ''.join([date[:8], '2359'])
         return datetime.strptime(str(date), '%Y%m%d%H%M').strftime('%Y-%m-%d %H:%M')
 
 
