@@ -254,10 +254,12 @@ class CSVPreprocessor(CSVReader, ABC):
         path_parent = os.path.dirname(self.PATH_CSV)
         path_dummy = os.path.sep.join([path_parent, 'dummy.csv'])
         encoding = self.get_csv_encoding(self.PATH_CSV)
+        df_tmp = pd.DataFrame()
         for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=encoding, dtype=str):
             chunk['khinterneskennzeichen'] = chunk['khinterneskennzeichen'].fillna('')
             chunk['khinterneskennzeichen'] = chunk['khinterneskennzeichen'].apply(lambda x: ''.join([str('0' * self.LEADING_ZEROS), x]))
-            self.save_df_as_csv(chunk, path_dummy, encoding)
+            df_tmp = pd.concat([df_tmp, chunk])
+        self.save_df_as_csv(df_tmp, path_dummy, encoding)
         os.remove(self.PATH_CSV)
         os.rename(path_dummy, self.PATH_CSV)
 
@@ -274,10 +276,12 @@ class FALLPreprocessor(CSVPreprocessor):
         path_parent = os.path.dirname(self.PATH_CSV)
         path_dummy = os.path.sep.join([path_parent, 'dummy.csv'])
         encoding = self.get_csv_encoding(self.PATH_CSV)
+        df_tmp = pd.DataFrame()
         for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=encoding, dtype=str):
             chunk[column] = chunk[column].fillna('')
             chunk[column] = chunk[column].apply(lambda x: x.rjust(length_required, '0') if len(x) == length_required - 1 else x)
-            self.save_df_as_csv(chunk, path_dummy, encoding)
+            df_tmp = pd.concat([df_tmp, chunk])
+        self.save_df_as_csv(df_tmp, path_dummy, encoding)
         os.remove(self.PATH_CSV)
         os.rename(path_dummy, self.PATH_CSV)
 

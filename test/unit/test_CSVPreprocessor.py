@@ -150,8 +150,9 @@ class TestCSVPreprocessor(unittest.TestCase):
         self.assertEqual(count_rows_old, count_rows_new)
         FALLPreprocessor.LEADING_ZEROS = 0
 
-    def test_appending_zeros_to_missing_internal_id_FALL(self):
+    def test_appending_zeros_to_missing_internal_id_FALL_with_custom_chunk_size(self):
         FALLPreprocessor.LEADING_ZEROS = 4
+        FALLPreprocessor.SIZE_CHUNKS = 10
         FALLPreprocessor.CSV_NAME = 'FALL_empty_internal_ids.csv'
         fall = FALLPreprocessor(self.PATH_TMP)
         fall.preprocess()
@@ -160,8 +161,9 @@ class TestCSVPreprocessor(unittest.TestCase):
         self.assertEqual(4, lengths[0])
         FALLPreprocessor.LEADING_ZEROS = 0
 
-    def test_appending_zeros_to_internal_id_FAB(self):
+    def test_appending_zeros_to_internal_id_FAB_with_custom_chunk_size(self):
         FABPreprocessor.LEADING_ZEROS = 8
+        FABPreprocessor.SIZE_CHUNKS = 10
         fab = FABPreprocessor(self.PATH_TMP)
         count_rows_old = count_rows_in_column(fab, 'KH-internes-Kennzeichen')
         lengths_old = count_unique_value_length_in_column(fab, 'KH-internes-Kennzeichen')
@@ -173,8 +175,9 @@ class TestCSVPreprocessor(unittest.TestCase):
         self.assertEqual(count_rows_old, count_rows_new)
         FABPreprocessor.LEADING_ZEROS = 0
 
-    def test_appending_zeros_to_internal_id_ICD(self):
+    def test_appending_zeros_to_internal_id_ICD_with_custom_chunk_size(self):
         ICDPreprocessor.LEADING_ZEROS = 1
+        ICDPreprocessor.SIZE_CHUNKS = 10
         icd = ICDPreprocessor(self.PATH_TMP)
         count_rows_old = count_rows_in_column(icd, 'KH-internes-Kennzeichen')
         lengths_old = count_unique_value_length_in_column(icd, 'KH-internes-Kennzeichen')
@@ -186,8 +189,9 @@ class TestCSVPreprocessor(unittest.TestCase):
         self.assertEqual(count_rows_old, count_rows_new)
         ICDPreprocessor.LEADING_ZEROS = 0
 
-    def test_appending_zeros_to_internal_id_OPS(self):
+    def test_appending_zeros_to_internal_id_OPS_with_custom_chunk_size(self):
         OPSPreprocessor.LEADING_ZEROS = -1
+        OPSPreprocessor.SIZE_CHUNKS = 10
         ops = OPSPreprocessor(self.PATH_TMP)
         count_rows_old = count_rows_in_column(ops, 'KH-internes-Kennzeichen')
         lengths_expected = count_unique_value_length_in_column(ops, 'KH-internes-Kennzeichen')
