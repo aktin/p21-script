@@ -74,14 +74,12 @@ else (no)
 stop
 endif
 
-partition "only during import" {
 :create a mapping table for matched encounter;
-partition "for all valid csv files" {
+partition "for all csv files" {
 :divide csv file into chunks;
 :filter chunks for matched encounter;
 :convert csv data of matched encounter to observation facts;
 :upload observation facts to database;
-}
 }
 
 :print results;

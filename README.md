@@ -8,8 +8,7 @@ The script is intended to import csv files with inpatient treatment data accordi
 * the semicolon `;` is used as a separator for data fields
 * the comma `,` is used as a separator for decimals
 
-The import process is divided into two steps: A verification of the files (`verify_file`) to be imported and the file import itself (`import_file`). The script can only be executed with one process at a time. The processes
-look like following:
+The processes look like following:
 
 ![sequence diagram](./docs/activity.png)
 
@@ -77,9 +76,9 @@ The script is only suitable for usage on the AKTIN DWH V1.4 or higher. For the i
 
 ### Local Usage
 
-It is also possible to run the script manually. For this, the respective import process (`verify_file` or `import_file`) and the path to the zip file to be uploaded must be passed to the script as input arguments:
+It is also possible to run the script manually. For this, the path to the zip file to be uploaded must be passed to the script as an input argument:
 
-`python p21import.py {import process} {path to the zip file}`
+`python p21import.py {path to the zip file}`
 
 When executing the script via the AKTIN DWH, some information is transmitted as environment variables. For local execution the following variables must be set accordingly:
 
