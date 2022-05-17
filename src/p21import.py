@@ -59,6 +59,7 @@ and uploads all valid data for valid encounters from fall.csv.
 
 # TODO keep download_date/import_date when updating encounter
 # TODO duplicate print of nonexisting files on import
+# TODO match first by billing_id and then by encounter_id
 
 class P21Importer:
 
@@ -81,27 +82,6 @@ class P21Importer:
                 preprocessor.preprocess()
                 verifier.check_column_names_of_csv()
 
-    def verify_file(self):
-        try:
-            path_tmp = self.__extract_and_rename_zip_content()
-            self.__preprocess_and_check_csv_files(path_tmp)
-            verifier_fall = FALLVerifier(path_tmp)
-            list_valid_ids = verifier_fall.get_unique_ids_of_valid_encounter()
-            try:
-                extractor = EncounterInfoExtractorWithBillingId()
-                matcher = DatabaseEncounterMatcher(extractor)
-                list_matched = matcher.get_matched_list(list_valid_ids)
-            except ValueError:
-                print('matching by billing id failed. trying matching by encounter id...')
-                extractor = EncounterInfoExtractorWithEncounterId()
-                matcher = DatabaseEncounterMatcher(extractor)
-                list_matched = matcher.get_matched_list(list_valid_ids)
-            print('Fälle gesamt: %d' % FALLVerifier(path_tmp).count_total_encounter())
-            print('Fälle valide: %d' % len(list_valid_ids))
-            print('Valide Fälle gematcht mit Datenbank: %d' % len(list_matched))
-        finally:
-            self.TFM.remove_tmp_folder()
-
     def import_file(self):
         global num_imports, num_updates
         try:
@@ -118,6 +98,9 @@ class P21Importer:
                 extractor = EncounterInfoExtractorWithEncounterId()
                 matcher = DatabaseEncounterMatcher(extractor)
                 df_mapping = matcher.get_matched_df(list_valid_ids)
+            print('Fälle gesamt: %d' % FALLVerifier(path_tmp).count_total_encounter())
+            print('Fälle valide: %d' % len(list_valid_ids))
+            print('Valide Fälle gematcht mit Datenbank: %d' % df_mapping.shape[0])
             dict_admission_dates = verifier_fall.get_unique_ids_of_valid_encounter_with_admission_dates()
             df_admission_dates = pd.DataFrame({'encounter_id': list(dict_admission_dates.keys()), 'aufnahmedatum': list(dict_admission_dates.values())})
             df_mapping = pd.merge(df_mapping, df_admission_dates, on=['encounter_id'])
@@ -1190,12 +1173,7 @@ class OPSObservationFactUploadManager(CSVObservationFactUploadManager):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 2:
         raise SystemExit('sys.argv don\'t match')
-    p21 = P21Importer(sys.argv[2])
-    if sys.argv[1] == 'verify_file':
-        p21.verify_file()
-    elif sys.argv[1] == 'import_file':
-        p21.import_file()
-    else:
-        raise SystemExit('unknown method function')
+    p21 = P21Importer(sys.argv[1])
+    p21.import_file()
