@@ -84,13 +84,13 @@ When executing the script via the AKTIN DWH, some information is transmitted as 
 
 | Parameter  | Description | Example |
 | ------------- | ------------- | ------------- |
-| SCRIPT_ID | ID of p21import.py (see @ID=****) | p21 |
-| SCRIPT_VERSION | Version of p21import.py (see @VERSION=****) | 1.5 |
-| ZIP_UUID | UUID of the uploaded zip file on the AKTIN DWH | e296bf5c-46b3-11ec-81d3-0242ac130003 |
-| USERNAME | User of the i2b2 database | username |
-| PASSWORD | Password of the database user | password |
-| I2B2_CONNECTION_URL | Connection url to the i2b2 database | jdbc:postgresql://localhost:5432/i2b2 |
-| PATH_AKTIN_PROPERTIES | Path to the aktin.properties | /etc/aktin/aktin.properties |
+| script_id | ID of p21import.py (see @ID=****) | p21 |
+| script_version | Version of p21import.py (see @VERSION=****) | 1.5 |
+| uuid | UUID of the uploaded zip file on the AKTIN DWH | e296bf5c-46b3-11ec-81d3-0242ac130003 |
+| username | User of the i2b2 database | username |
+| password | Password of the database user | password |
+| connection-url | Connection url to the i2b2 database | jdbc:postgresql://localhost:5432/i2b2 |
+| path_aktin_properties | Path to the aktin.properties | /etc/aktin/aktin.properties |
 
 
 ## Testing
