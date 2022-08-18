@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*
 # Created on Wed Jan 20 11:36:55 2021
-# @VERSION=1.5.2
+# @VERSION=1.5.3
 # @VIEWNAME=P21-Importskript
 # @MIMETYPE=zip
 # @ID=p21
