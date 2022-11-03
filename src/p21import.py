@@ -913,6 +913,7 @@ class DatabaseEncounterMatcher:
         list_csv_ide = self.ANONYMIZER.anonymize_list(root, list_csv_ids, salt)
         df_csv = pd.DataFrame(list(zip(list_csv_ids, list_csv_ide)), columns=['encounter_id', 'match_id'])
         df_merged = pd.merge(df_db, df_csv, on=['match_id'])
+        df_merged.drop_duplicates(keep=False, inplace=True)
         df_merged = df_merged.drop(['match_id'], axis=1)
         if df_merged.empty:
             raise SystemExit('no encounter could be matched with database')
