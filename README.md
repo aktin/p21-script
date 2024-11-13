@@ -1,4 +1,4 @@
-# p21-script [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=aktin_p21-script&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=aktin_p21-script) ![Python 3.9](https://img.shields.io/badge/python-3.9-blue)
+# p21-script [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=aktin_p21-script&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=aktin_p21-script) ![Python 3.8.10](https://img.shields.io/badge/python-3.8.10-blue)
 
 A Python script to import inpatient treatment data according to §21 KHEntgG into the AKTIN DWH
 
@@ -8,8 +8,7 @@ The script is intended to import csv files with inpatient treatment data accordi
 * the semicolon `;` is used as a separator for data fields
 * the comma `,` is used as a separator for decimals
 
-The import process is divided into two steps: A verification of the files (`verify_file`) to be imported and the file import itself (`import_file`). The script can only be executed with one process at a time. The processes
-look like following:
+The processes look like following:
 
 ![sequence diagram](./docs/activity.png)
 
@@ -77,21 +76,21 @@ The script is only suitable for usage on the AKTIN DWH V1.4 or higher. For the i
 
 ### Local Usage
 
-It is also possible to run the script manually. For this, the respective import process (`verify_file` or `import_file`) and the path to the zip file to be uploaded must be passed to the script as input arguments:
+It is also possible to run the script manually. For this, the path to the zip file to be uploaded must be passed to the script as an input argument:
 
-`python p21import.py {import process} {path to the zip file}`
+`python p21import.py {path to the zip file}`
 
 When executing the script via the AKTIN DWH, some information is transmitted as environment variables. For local execution the following variables must be set accordingly:
 
 | Parameter  | Description | Example |
 | ------------- | ------------- | ------------- |
-| SCRIPT_ID | ID of p21import.py (see @ID=****) | p21 |
-| SCRIPT_VERSION | Version of p21import.py (see @VERSION=****) | 1.5 |
-| ZIP_UUID | UUID of the uploaded zip file on the AKTIN DWH | e296bf5c-46b3-11ec-81d3-0242ac130003 |
-| USERNAME | User of the i2b2 database | username |
-| PASSWORD | Password of the database user | password |
-| I2B2_CONNECTION_URL | Connection url to the i2b2 database | jdbc:postgresql://localhost:5432/i2b2 |
-| PATH_AKTIN_PROPERTIES | Path to the aktin.properties | /etc/aktin/aktin.properties |
+| script_id | ID of p21import.py (see @ID=****) | p21 |
+| script_version | Version of p21import.py (see @VERSION=****) | 1.5 |
+| uuid | UUID of the uploaded zip file on the AKTIN DWH | e296bf5c-46b3-11ec-81d3-0242ac130003 |
+| username | User of the i2b2 database | username |
+| password | Password of the database user | password |
+| connection-url | Connection url to the i2b2 database | jdbc:postgresql://localhost:5432/i2b2 |
+| path_aktin_properties | Path to the aktin.properties | /etc/aktin/aktin.properties |
 
 
 ## Testing
