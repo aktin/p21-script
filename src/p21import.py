@@ -243,7 +243,7 @@ class CSVPreprocessor(CSVReader, ABC):
         list_header = header.split(self.CSV_SEPARATOR)
         if list_header.count(column_new) == 1:
             return header
-        pattern = ''.join(['^', column_old, '(\.)?(\d*)?$'])
+        pattern = ''.join([r'^', column_old, r'(\.)?(\d*)?$'])
         idx_match = [i for i, item in enumerate(list_header) if re.search(pattern, item)]
         if len(idx_match) != 1:
             raise SystemExit('invalid count for column of %s during adjustment' % column_old)
@@ -328,7 +328,7 @@ class ICDPreprocessor(CSVPreprocessor):
         list_header = header.split(self.CSV_SEPARATOR)
         encoding = self.get_csv_encoding(self.PATH_CSV)
         df = pd.read_csv(self.PATH_CSV, sep=self.CSV_SEPARATOR, encoding=encoding, dtype=str)
-        df.set_axis(list_header, axis='columns', inplace=True)
+        df.set_axis(list_header, axis='columns')
         df['sekundärkode'] = ''
         df['sekundärlokalisation'] = ''
         df['sekundärdiagnosensicherheit'] = ''
@@ -411,24 +411,24 @@ class FALLVerifier(CSVFileVerifier):
     """
 
     CSV_NAME = 'fall.csv'
-    DICT_COLUMN_PATTERN = {'khinterneskennzeichen':         '^.*$',
-                           'ikderkrankenkasse':             '^\w*$',
-                           'geburtsjahr':                   '^(19|20)\d{2}$',
-                           'geschlecht':                    '^[mwdx]$',
-                           'plz':                           '^\d{5}$',
-                           'aufnahmedatum':                 '^\d{12}$',
-                           'aufnahmegrund':                 '^(0[1-9]|10)\d{2}$',
-                           'aufnahmeanlass':                '^[EZNRVAGB]$',
-                           'fallzusammenführung':           '^(J|N)$',
-                           'fallzusammenführungsgrund':     '^OG|MD|KO|RU|WR|MF|P[WRM]|Z[OMKRW]$',
-                           'verweildauerintensiv':          '^\d*(,\d{2})?$',
-                           'entlassungsdatum':              '^\d{12}$',
-                           'entlassungsgrund':              '^\d{2}.{1}$',
-                           'beatmungsstunden':              '^\d*(,\d{2})?$',
-                           'behandlungsbeginnvorstationär': '^\d{8}$',
-                           'behandlungstagevorstationär':   '^\d{0,4}$',
-                           'behandlungsendenachstationär':  '^\d{8}$',
-                           'behandlungstagenachstationär':  '^\d{0,4}$'}
+    DICT_COLUMN_PATTERN = {'khinterneskennzeichen':         r'^.*$',
+                           'ikderkrankenkasse':             r'^\w*$',
+                           'geburtsjahr':                   r'^(19|20)\d{2}$',
+                           'geschlecht':                    r'^[mwdx]$',
+                           'plz':                           r'^\d{5}$',
+                           'aufnahmedatum':                 r'^\d{12}$',
+                           'aufnahmegrund':                 r'^(0[1-9]|10)\d{2}$',
+                           'aufnahmeanlass':                r'^[EZNRVAGB]$',
+                           'fallzusammenführung':           r'^(J|N)$',
+                           'fallzusammenführungsgrund':     r'^OG|MD|KO|RU|WR|MF|P[WRM]|Z[OMKRW]$',
+                           'verweildauerintensiv':          r'^\d*(,\d{2})?$',
+                           'entlassungsdatum':              r'^\d{12}$',
+                           'entlassungsgrund':              r'^\d{2}.{1}$',
+                           'beatmungsstunden':              r'^\d*(,\d{2})?$',
+                           'behandlungsbeginnvorstationär': r'^\d{8}$',
+                           'behandlungstagevorstationär':   r'^\d{0,4}$',
+                           'behandlungsendenachstationär':  r'^\d{8}$',
+                           'behandlungstagenachstationär':  r'^\d{0,4}$'}
     MANDATORY_COLUMN_VALUES = ['khinterneskennzeichen', 'aufnahmedatum', 'aufnahmegrund', 'aufnahmeanlass']
 
     def is_csv_in_folder(self) -> bool:
@@ -468,35 +468,35 @@ class FALLVerifier(CSVFileVerifier):
 
 class FABVerifier(CSVFileVerifier):
     CSV_NAME = 'fab.csv'
-    DICT_COLUMN_PATTERN = {'khinterneskennzeichen': '^.*$',
-                           'fachabteilung':         '^(HA|BA|BE)\d{4}$',
-                           'fabaufnahmedatum':      '^\d{12}$',
-                           'fabentlassungsdatum':   '^\d{12}$',
-                           'kennungintensivbett':   '^(J|N)$'}
+    DICT_COLUMN_PATTERN = {'khinterneskennzeichen': r'^.*$',
+                           'fachabteilung':         r'^(HA|BA|BE)\d{4}$',
+                           'fabaufnahmedatum':      r'^\d{12}$',
+                           'fabentlassungsdatum':   r'^\d{12}$',
+                           'kennungintensivbett':   r'^(J|N)$'}
     MANDATORY_COLUMN_VALUES = ['khinterneskennzeichen', 'fachabteilung', 'fabaufnahmedatum', 'kennungintensivbett']
 
 
 class ICDVerifier(CSVFileVerifier):
     CSV_NAME = 'icd.csv'
-    DICT_COLUMN_PATTERN = {'khinterneskennzeichen':       '^.*$',
-                           'diagnoseart':                 '^(HD|ND|SD)$',
-                           'icdversion':                  '^20\d{2}$',
-                           'icdkode':                     '^[A-Z]\d{2}(\.)?.{0,5}$',
-                           'lokalisation':                '^[BLR]$',
-                           'diagnosensicherheit':         '^[AVZG]$',
-                           'sekundärkode':                '^[A-Z]\d{2}(\.)?.{0,5}$',
-                           'sekundärlokalisation':        '^[BLR]$',
-                           'sekundärdiagnosensicherheit': '^[AVZG]$'}
+    DICT_COLUMN_PATTERN = {'khinterneskennzeichen':       r'^.*$',
+                           'diagnoseart':                 r'^(HD|ND|SD)$',
+                           'icdversion':                  r'^20\d{2}$',
+                           'icdkode':                     r'^[A-Z]\d{2}(\.)?.{0,5}$',
+                           'lokalisation':                r'^[BLR]$',
+                           'diagnosensicherheit':         r'^[AVZG]$',
+                           'sekundärkode':                r'^[A-Z]\d{2}(\.)?.{0,5}$',
+                           'sekundärlokalisation':        r'^[BLR]$',
+                           'sekundärdiagnosensicherheit': r'^[AVZG]$'}
     MANDATORY_COLUMN_VALUES = ['khinterneskennzeichen', 'diagnoseart', 'icdversion', 'icdkode']
 
 
 class OPSVerifier(CSVFileVerifier):
     CSV_NAME = 'ops.csv'
-    DICT_COLUMN_PATTERN = {'khinterneskennzeichen': '^.*$',
-                           'opsversion':            '^20\d{2}$',
-                           'opskode':               '^\d{1}(\-)?\d{2}(.{1})?(\.)?.{0,3}$',
-                           'opsdatum':              '^\d{12}$',
-                           'lokalisation':          '^[BLR]$'}
+    DICT_COLUMN_PATTERN = {'khinterneskennzeichen': r'^.*$',
+                           'opsversion':            r'^20\d{2}$',
+                           'opskode':               r'^\d{1}(\-)?\d{2}(.{1})?(\.)?.{0,3}$',
+                           'opsdatum':              r'^\d{12}$',
+                           'lokalisation':          r'^[BLR]$'}
     MANDATORY_COLUMN_VALUES = ['khinterneskennzeichen', 'opsversion', 'opskode', 'opsdatum']
 
 
@@ -821,7 +821,7 @@ class DatabaseConnection(ABC):
         self.I2B2_CONNECTION_URL = os.environ['connection-url']
 
     def connect(self):
-        pattern = 'jdbc:postgresql://(.*?)(\?searchPath=.*)?$'
+        pattern = r'jdbc:postgresql://(.*?)(\?searchPath=.*)?$'
         connection = re.search(pattern, self.I2B2_CONNECTION_URL).group(1)
         self.ENGINE = db.create_engine('postgresql+psycopg2://{0}:{1}@{2}'.format(self.USERNAME, self.PASSWORD, connection))
         self.CONNECTION = self.ENGINE.connect()
