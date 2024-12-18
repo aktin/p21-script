@@ -196,10 +196,8 @@ class CSVReader(ABC):
         self.PATH_CSV = os.path.join(path_folder, self.CSV_NAME)
 
     @staticmethod
-    def get_csv_encoding(path_csv: str) -> str:
-        with open(path_csv, 'rb') as csv:
-            encoding = chardet.detect(csv.read(5120))['encoding']
-        return encoding
+    def get_csv_encoding() -> str:
+        return 'utf-8'
 
     def save_df_as_csv(self, df_input: pd.DataFrame, path_output: str, encoding: str):
         df_input.to_csv(path_output, sep=self.CSV_SEPARATOR, encoding=encoding, index=False)
@@ -220,7 +218,7 @@ class CSVPreprocessor(CSVReader, ABC):
         self._append_zeros_to_internal_id()
 
     def _get_csv_file_header_in_lowercase(self) -> str:
-        df = pd.read_csv(self.PATH_CSV, nrows=0, index_col=None, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(self.PATH_CSV), dtype=str)
+        df = pd.read_csv(self.PATH_CSV, nrows=0, index_col=None, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(), dtype=str)
         df.rename(columns=str.lower, inplace=True)
         return ';'.join(df.columns)
 
@@ -231,7 +229,7 @@ class CSVPreprocessor(CSVReader, ABC):
     def _write_header_to_csv(self, header: str):
         path_parent = os.path.dirname(self.PATH_CSV)
         path_dummy = os.path.sep.join([path_parent, 'dummy.csv'])
-        encoding = self.get_csv_encoding(self.PATH_CSV)
+        encoding = self.get_csv_encoding()
         with open(self.PATH_CSV, 'r+', encoding=encoding) as f1, open(path_dummy, 'w+', encoding=encoding) as f2:
             f1.readline()
             f2.write(header)
@@ -253,7 +251,7 @@ class CSVPreprocessor(CSVReader, ABC):
     def _append_zeros_to_internal_id(self):
         path_parent = os.path.dirname(self.PATH_CSV)
         path_dummy = os.path.sep.join([path_parent, 'dummy.csv'])
-        encoding = self.get_csv_encoding(self.PATH_CSV)
+        encoding = self.get_csv_encoding()
         df_tmp = pd.DataFrame()
         for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=encoding, dtype=str):
             chunk['khinterneskennzeichen'] = chunk['khinterneskennzeichen'].fillna('')
@@ -275,7 +273,7 @@ class FALLPreprocessor(CSVPreprocessor):
     def __append_zero_to_column_if_length_below_requirement(self, column: str, length_required: int):
         path_parent = os.path.dirname(self.PATH_CSV)
         path_dummy = os.path.sep.join([path_parent, 'dummy.csv'])
-        encoding = self.get_csv_encoding(self.PATH_CSV)
+        encoding = self.get_csv_encoding()
         df_tmp = pd.DataFrame()
         for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=encoding, dtype=str):
             chunk[column] = chunk[column].fillna('')
@@ -326,7 +324,7 @@ class ICDPreprocessor(CSVPreprocessor):
 
     def __write_header_with_secondary_diagnoses_columns_to_csv(self, header: str):
         list_header = header.split(self.CSV_SEPARATOR)
-        encoding = self.get_csv_encoding(self.PATH_CSV)
+        encoding = self.get_csv_encoding()
         df = pd.read_csv(self.PATH_CSV, sep=self.CSV_SEPARATOR, encoding=encoding, dtype=str)
         df.set_axis(list_header, axis='columns')
         df['sekundärkode'] = ''
@@ -364,7 +362,7 @@ class CSVFileVerifier(CSVReader, ABC):
         return True
 
     def check_column_names_of_csv(self):
-        df = pd.read_csv(self.PATH_CSV, nrows=0, index_col=None, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(self.PATH_CSV), dtype=str)
+        df = pd.read_csv(self.PATH_CSV, nrows=0, index_col=None, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(), dtype=str)
         set_required_columns = set(self.DICT_COLUMN_PATTERN.keys())
         set_matched_columns = set_required_columns.intersection(set(df.columns))
         if set_matched_columns != set_required_columns:
@@ -372,7 +370,7 @@ class CSVFileVerifier(CSVReader, ABC):
 
     def get_unique_ids_of_valid_encounter(self) -> list:
         set_valid_ids = set()
-        for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(self.PATH_CSV), dtype=str):
+        for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(), dtype=str):
             chunk = chunk[list(self.DICT_COLUMN_PATTERN.keys())]
             chunk = chunk.fillna('')
             for column in chunk.columns.values:
@@ -443,7 +441,7 @@ class FALLVerifier(CSVFileVerifier):
         return list_valid_ids
 
     def count_total_encounter(self) -> int:
-        with open(self.PATH_CSV, encoding=self.get_csv_encoding(self.PATH_CSV)) as csv:
+        with open(self.PATH_CSV, encoding=self.get_csv_encoding()) as csv:
             total = sum(1 for _ in csv)
         return total - 1
 
@@ -454,7 +452,7 @@ class FALLVerifier(CSVFileVerifier):
         to create the mapping dataframe required by CSVObservationFactUploadManager
         """
         dict_case_admissions = {}
-        for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(self.PATH_CSV), dtype=str):
+        for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(), dtype=str):
             chunk = chunk[list(self.DICT_COLUMN_PATTERN.keys())]
             chunk = chunk.fillna('')
             for column in chunk.columns.values:
@@ -1102,7 +1100,7 @@ class CSVObservationFactUploadManager(ABC):
         try:
             self.TABLEHANDLER.connect()
             self.TABLEHANDLER.reflect_table()
-            for chunk in pd.read_csv(self.VERIFIER.PATH_CSV, chunksize=self.VERIFIER.SIZE_CHUNKS, sep=self.VERIFIER.CSV_SEPARATOR, encoding=self.VERIFIER.get_csv_encoding(self.VERIFIER.PATH_CSV), dtype=str):
+            for chunk in pd.read_csv(self.VERIFIER.PATH_CSV, chunksize=self.VERIFIER.SIZE_CHUNKS, sep=self.VERIFIER.CSV_SEPARATOR, encoding=self.VERIFIER.get_csv_encoding(), dtype=str):
                 chunk = self._clear_chunk_from_invalid_data(chunk)
                 if chunk.empty:
                     continue
