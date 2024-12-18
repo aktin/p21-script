@@ -868,9 +868,16 @@ class EncounterInfoExtractorWithEncounterId(DatabaseExtractor):
             enc = db.Table('encounter_mapping', db.MetaData(), autoload_with=self.ENGINE)
             pat = db.Table('patient_mapping', db.MetaData(), autoload_with=self.ENGINE)
             opt = db.Table('optinout_patients', db.MetaData(), autoload_with=self.ENGINE)
-            query = db.select([enc.c['encounter_ide'], enc.c['encounter_num'], pat.c['patient_num']]).select_from(
-                    enc.join(pat, enc.c['patient_ide'] == pat.c['patient_ide']).join(opt, pat.c['patient_ide'] == opt.c['pat_psn'], isouter=True)).where(
-                    db.or_(opt.c['study_id'] != 'AKTIN', opt.c['pat_psn'].is_(None)))
+            query = db.select(
+                enc.c.encounter_ide,
+                enc.c.encounter_num,
+                pat.c.patient_num
+            ).select_from(
+                enc.join(pat, enc.c.patient_ide == pat.c.patient_ide)
+                .join(opt, pat.c.patient_ide == opt.c.pat_psn, isouter=True)
+            ).where(
+                db.or_(opt.c.study_id != 'AKTIN', opt.c.pat_psn.is_(None))
+            )
             df = self._stream_query_into_df(query)
             df.rename(columns={'encounter_ide': 'match_id'}, inplace=True)
             return df
@@ -891,9 +898,19 @@ class EncounterInfoExtractorWithBillingId(DatabaseExtractor):
             fact = db.Table('observation_fact', db.MetaData(), autoload_with=self.ENGINE)
             pat = db.Table('patient_mapping', db.MetaData(), autoload_with=self.ENGINE)
             opt = db.Table('optinout_patients', db.MetaData(), autoload_with=self.ENGINE)
-            query = db.select([fact.c['tval_char'], fact.c['encounter_num'], fact.c['patient_num']]).select_from(
-                    fact.join(pat, fact.c['patient_num'] == pat.c['patient_num']).join(opt, pat.c['patient_ide'] == opt.c['pat_psn'], isouter=True)).where(
-                    db.and_(db.or_(opt.c['study_id'] != 'AKTIN', opt.c['pat_psn'].is_(None)), fact.c['concept_cd'] == 'AKTIN:Fallkennzeichen'))
+            query = db.select(
+                fact.c.tval_char,
+                fact.c.encounter_num,
+                fact.c.patient_num
+            ).select_from(
+                fact.join(pat, fact.c.patient_num == pat.c.patient_num)
+                .join(opt, pat.c.patient_ide == opt.c.pat_psn, isouter=True)
+            ).where(
+                db.and_(
+                    db.or_(opt.c.study_id != 'AKTIN', opt.c.pat_psn.is_(None)),
+                    fact.c.concept_cd == 'AKTIN:Fallkennzeichen'
+                )
+            )
             df = self._stream_query_into_df(query)
             df.rename(columns={'tval_char': 'match_id'}, inplace=True)
             return df
@@ -1029,7 +1046,7 @@ class ObservationFactTableHandler(TableHandler):
         """
         transaction = self.CONNECTION.begin()
         try:
-            self.CONNECTION.execute(self.TABLE.insert(), list_dicts)
+            self.CONNECTION.execute(db.insert(self.TABLE), list_dicts)
             transaction.commit()
         except exc.SQLAlchemyError:
             transaction.rollback()
@@ -1046,7 +1063,12 @@ class ObservationFactTableHandler(TableHandler):
             sourcesystem_cd = sourcesystem[0][0]
             transaction = self.CONNECTION.begin()
             try:
-                statement_delete = self.TABLE.delete().where(self.TABLE.c['encounter_num'] == str(identifier)).where(self.TABLE.c['sourcesystem_cd'] == sourcesystem_cd)
+                statement_delete = db.delete(self.TABLE).where(
+                    db.and_(
+                        self.TABLE.c.encounter_num == str(identifier),
+                        self.TABLE.c.sourcesystem_cd == sourcesystem_cd
+                    )
+                )
                 self.CONNECTION.execute(statement_delete)
                 transaction.commit()
             except exc.SQLAlchemyError:
@@ -1065,8 +1087,14 @@ class ObservationFactTableHandler(TableHandler):
         FALLObservationFactConverter) of the corresponding encounter with the metadata
         of this script.
         """
-        query = db.select([self.TABLE.c['sourcesystem_cd']]).where(self.TABLE.c['encounter_num'] == str(num_enc)).where(self.TABLE.c['concept_cd'] == 'P21:SCRIPT').where(
-                self.TABLE.c['modifier_cd'] == 'scriptId').where(self.TABLE.c['provider_id'] == 'P21')
+        query = db.select(self.TABLE.c.sourcesystem_cd).where(
+            db.and_(
+                self.TABLE.c.encounter_num == str(num_enc),
+                self.TABLE.c.concept_cd == 'P21:SCRIPT',
+                self.TABLE.c.modifier_cd == 'scriptId',
+                self.TABLE.c.provider_id == 'P21'
+            )
+        )
         return self.CONNECTION.execute(query).fetchall()
 
     @staticmethod
