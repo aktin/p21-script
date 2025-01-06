@@ -323,9 +323,8 @@ class ICDPreprocessor(CSVPreprocessor):
 
     def __write_header_with_secondary_diagnoses_columns_to_csv(self, header: str):
         list_header = header.split(self.CSV_SEPARATOR)
-        encoding = self.get_csv_encoding()
-        df = pd.read_csv(self.PATH_CSV, sep=self.CSV_SEPARATOR, encoding=encoding, dtype=str)
-        df.set_axis(list_header, axis='columns')
+        df = pd.read_csv(self.PATH_CSV, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(), dtype=str)
+        df.columns = list_header
         df['sekundärkode'] = ''
         df['sekundärlokalisation'] = ''
         df['sekundärdiagnosensicherheit'] = ''
