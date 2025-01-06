@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*
 # Created on Wed Jan 20 11:36:55 2021
-# @VERSION=1.5.2
+# @VERSION=1.6rc1-1
 # @VIEWNAME=P21-Importskript
 # @MIMETYPE=zip
 # @ID=p21
@@ -34,7 +34,6 @@ import zipfile
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-import chardet
 import pandas as pd
 import sqlalchemy as db
 from sqlalchemy import exc
