@@ -392,7 +392,7 @@ class CSVFileVerifier(CSVReader, ABC):
         indeces_wrong_syntax = chunk[(chunk[column_name] != '') & (~chunk[column_name].str.match(pattern))].index
         if len(indeces_wrong_syntax):
             if column_name not in self.MANDATORY_COLUMN_VALUES:
-                chunk.at[indeces_wrong_syntax, column_name] = ''
+                chunk.loc[indeces_wrong_syntax, column_name] = ''
             else:
                 chunk = chunk.drop(indeces_wrong_syntax)
         if len(indeces_empty_fields) and column_name in self.MANDATORY_COLUMN_VALUES:

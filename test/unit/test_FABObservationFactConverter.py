@@ -1,7 +1,5 @@
 import os
 import unittest
-
-import chardet
 import pandas as pd
 
 from src.p21import import FABObservationFactConverter
@@ -10,16 +8,10 @@ from src.p21import import TmpFolderManager
 from src.p21import import ZipFileExtractor
 
 
-def get_csv_encoding(path_csv: str) -> str:
-    with open(path_csv, 'rb') as csv:
-        encoding = chardet.detect(csv.read(1024))['encoding']
-    return encoding
-
-
 class TestFABObservationFactConverter(unittest.TestCase):
 
     def read_csv_as_df(self) -> pd.DataFrame:
-        df = pd.read_csv(self.PREPROCESSOR.PATH_CSV, sep=self.PREPROCESSOR.CSV_SEPARATOR, encoding=get_csv_encoding(self.PREPROCESSOR.PATH_CSV), dtype=str)
+        df = pd.read_csv(self.PREPROCESSOR.PATH_CSV, sep=self.PREPROCESSOR.CSV_SEPARATOR, encoding='utf-8', dtype=str)
         df = df.fillna('')
         return df
 
@@ -31,6 +23,7 @@ class TestFABObservationFactConverter(unittest.TestCase):
         zfe = ZipFileExtractor(path_zip)
         self.PATH_TMP = self.TMP.create_tmp_folder()
         zfe.extract_zip_to_folder(self.PATH_TMP)
+        self.TMP.rename_files_in_tmp_folder_to_lowercase()
         os.environ['uuid'] = '3fc5b451-1111-2222-3333-a70bfc58fd1f'
         os.environ['script_id'] = 'test'
         os.environ['script_version'] = '1.0'

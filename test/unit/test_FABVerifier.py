@@ -1,23 +1,16 @@
 # -*- coding: UTF-8 -*-.
-
 import unittest
 import os
 import pandas as pd
-import chardet
+
 from src.p21import import TmpFolderManager
 from src.p21import import ZipFileExtractor
 from src.p21import import FABPreprocessor
 from src.p21import import FABVerifier
 
 
-def get_csv_encoding(path_csv: str) -> str:
-    with open(path_csv, 'rb') as csv:
-        encoding = chardet.detect(csv.read(1024))['encoding']
-    return encoding
-
-
 def get_all_case_ids_as_set(verifier: FABVerifier) -> set:
-    df = pd.read_csv(verifier.PATH_CSV, sep=verifier.CSV_SEPARATOR, encoding=get_csv_encoding(verifier.PATH_CSV), dtype=str)
+    df = pd.read_csv(verifier.PATH_CSV, sep=verifier.CSV_SEPARATOR, encoding='utf-8', dtype=str)
     return set(df['khinterneskennzeichen'].unique())
 
 
@@ -31,6 +24,7 @@ class TestFABVerifier(unittest.TestCase):
         zfe = ZipFileExtractor(path_zip)
         self.PATH_TMP = self.TMP.create_tmp_folder()
         zfe.extract_zip_to_folder(self.PATH_TMP)
+        self.TMP.rename_files_in_tmp_folder_to_lowercase()
 
     def tearDown(self) -> None:
         self.TMP.remove_tmp_folder()
