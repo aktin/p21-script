@@ -1,38 +1,29 @@
 import os
 import unittest
-
-import chardet
 import pandas as pd
 
 from src.p21import import CSVPreprocessor, FABPreprocessor, FALLPreprocessor, ICDPreprocessor, OPSPreprocessor
 from src.p21import import TmpFolderManager
 from src.p21import import ZipFileExtractor
 
-
-def get_csv_encoding(path_csv: str) -> str:
-    with open(path_csv, 'rb') as csv:
-        encoding = chardet.detect(csv.read(1024))['encoding']
-    return encoding
-
-
 def read_csv_header(preprocessor: CSVPreprocessor) -> str:
-    df = pd.read_csv(preprocessor.PATH_CSV, nrows=0, index_col=None, sep=preprocessor.CSV_SEPARATOR, encoding=get_csv_encoding(preprocessor.PATH_CSV), dtype=str)
+    df = pd.read_csv(preprocessor.PATH_CSV, nrows=0, index_col=None, sep=preprocessor.CSV_SEPARATOR, encoding='utf-8', dtype=str)
     return ';'.join(df.columns)
 
 
 def count_unique_value_length_in_column(preprocessor: CSVPreprocessor, column: str) -> list:
-    df = pd.read_csv(preprocessor.PATH_CSV, index_col=None, sep=preprocessor.CSV_SEPARATOR, encoding=get_csv_encoding(preprocessor.PATH_CSV), dtype=str)
+    df = pd.read_csv(preprocessor.PATH_CSV, index_col=None, sep=preprocessor.CSV_SEPARATOR, encoding='utf-8', dtype=str)
     return df[column].apply(len).unique()
 
 
 def count_values_with_given_length_in_column(preprocessor: CSVPreprocessor, column: str, length: int) -> int:
-    df = pd.read_csv(preprocessor.PATH_CSV, index_col=None, sep=preprocessor.CSV_SEPARATOR, encoding=get_csv_encoding(preprocessor.PATH_CSV), dtype=str)
+    df = pd.read_csv(preprocessor.PATH_CSV, index_col=None, sep=preprocessor.CSV_SEPARATOR, encoding='utf-8', dtype=str)
     df[column] = df[column].apply(lambda x: True if len(x) == length else False)
     return df[column].sum()
 
 
 def count_rows_in_column(preprocessor: CSVPreprocessor, column: str) -> int:
-    df = pd.read_csv(preprocessor.PATH_CSV, index_col=None, sep=preprocessor.CSV_SEPARATOR, encoding=get_csv_encoding(preprocessor.PATH_CSV), dtype=str)
+    df = pd.read_csv(preprocessor.PATH_CSV, index_col=None, sep=preprocessor.CSV_SEPARATOR, encoding='utf-8', dtype=str)
     return df[column].shape[0]
 
 
@@ -46,6 +37,7 @@ class TestCSVPreprocessor(unittest.TestCase):
         zfe = ZipFileExtractor(path_zip)
         self.PATH_TMP = self.TMP.create_tmp_folder()
         zfe.extract_zip_to_folder(self.PATH_TMP)
+        self.TMP.rename_files_in_tmp_folder_to_lowercase()
 
     def tearDown(self):
         self.TMP.remove_tmp_folder()
@@ -153,7 +145,7 @@ class TestCSVPreprocessor(unittest.TestCase):
     def test_appending_zeros_to_missing_internal_id_FALL_with_custom_chunk_size(self):
         FALLPreprocessor.LEADING_ZEROS = 4
         FALLPreprocessor.SIZE_CHUNKS = 10
-        FALLPreprocessor.CSV_NAME = 'FALL_empty_internal_ids.csv'
+        FALLPreprocessor.CSV_NAME = 'fall_empty_internal_ids.csv'
         fall = FALLPreprocessor(self.PATH_TMP)
         fall.preprocess()
         lengths = count_unique_value_length_in_column(fall, 'khinterneskennzeichen')
@@ -203,7 +195,7 @@ class TestCSVPreprocessor(unittest.TestCase):
         OPSPreprocessor.LEADING_ZEROS = 0
 
     def test_adding_of_leading_zeros_in_plz(self):
-        FALLPreprocessor.CSV_NAME = 'FALL_missing_zeros.csv'
+        FALLPreprocessor.CSV_NAME = 'fall_missing_zeros.csv'
         fall = FALLPreprocessor(self.PATH_TMP)
         lengths_five_old = count_values_with_given_length_in_column(fall, 'PLZ', 5)
         lengths_four_old = count_values_with_given_length_in_column(fall, 'PLZ', 4)
@@ -215,7 +207,7 @@ class TestCSVPreprocessor(unittest.TestCase):
         self.assertEqual(0, lengths_four_new)
 
     def test_adding_of_leading_zeros_in_aufnahmegrund(self):
-        FALLPreprocessor.CSV_NAME = 'FALL_missing_zeros.csv'
+        FALLPreprocessor.CSV_NAME = 'fall_missing_zeros.csv'
         fall = FALLPreprocessor(self.PATH_TMP)
         lengths_four_old = count_values_with_given_length_in_column(fall, 'Aufnahmegrund', 4)
         lengths_three_old = count_values_with_given_length_in_column(fall, 'Aufnahmegrund', 3)

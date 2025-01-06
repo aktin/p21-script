@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*
 # Created on Wed Jan 20 11:36:55 2021
-# @VERSION=1.5.2
+# @VERSION=1.6rc1-1
 # @VIEWNAME=P21-Importskript
 # @MIMETYPE=zip
 # @ID=p21
@@ -34,7 +34,6 @@ import zipfile
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-import chardet
 import pandas as pd
 import sqlalchemy as db
 from sqlalchemy import exc
@@ -196,10 +195,8 @@ class CSVReader(ABC):
         self.PATH_CSV = os.path.join(path_folder, self.CSV_NAME)
 
     @staticmethod
-    def get_csv_encoding(path_csv: str) -> str:
-        with open(path_csv, 'rb') as csv:
-            encoding = chardet.detect(csv.read(5120))['encoding']
-        return encoding
+    def get_csv_encoding() -> str:
+        return 'utf-8'
 
     def save_df_as_csv(self, df_input: pd.DataFrame, path_output: str, encoding: str):
         df_input.to_csv(path_output, sep=self.CSV_SEPARATOR, encoding=encoding, index=False)
@@ -220,7 +217,7 @@ class CSVPreprocessor(CSVReader, ABC):
         self._append_zeros_to_internal_id()
 
     def _get_csv_file_header_in_lowercase(self) -> str:
-        df = pd.read_csv(self.PATH_CSV, nrows=0, index_col=None, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(self.PATH_CSV), dtype=str)
+        df = pd.read_csv(self.PATH_CSV, nrows=0, index_col=None, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(), dtype=str)
         df.rename(columns=str.lower, inplace=True)
         return ';'.join(df.columns)
 
@@ -231,7 +228,7 @@ class CSVPreprocessor(CSVReader, ABC):
     def _write_header_to_csv(self, header: str):
         path_parent = os.path.dirname(self.PATH_CSV)
         path_dummy = os.path.sep.join([path_parent, 'dummy.csv'])
-        encoding = self.get_csv_encoding(self.PATH_CSV)
+        encoding = self.get_csv_encoding()
         with open(self.PATH_CSV, 'r+', encoding=encoding) as f1, open(path_dummy, 'w+', encoding=encoding) as f2:
             f1.readline()
             f2.write(header)
@@ -243,7 +240,7 @@ class CSVPreprocessor(CSVReader, ABC):
         list_header = header.split(self.CSV_SEPARATOR)
         if list_header.count(column_new) == 1:
             return header
-        pattern = ''.join(['^', column_old, '(\.)?(\d*)?$'])
+        pattern = ''.join([r'^', column_old, r'(\.)?(\d*)?$'])
         idx_match = [i for i, item in enumerate(list_header) if re.search(pattern, item)]
         if len(idx_match) != 1:
             raise SystemExit('invalid count for column of %s during adjustment' % column_old)
@@ -253,7 +250,7 @@ class CSVPreprocessor(CSVReader, ABC):
     def _append_zeros_to_internal_id(self):
         path_parent = os.path.dirname(self.PATH_CSV)
         path_dummy = os.path.sep.join([path_parent, 'dummy.csv'])
-        encoding = self.get_csv_encoding(self.PATH_CSV)
+        encoding = self.get_csv_encoding()
         df_tmp = pd.DataFrame()
         for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=encoding, dtype=str):
             chunk['khinterneskennzeichen'] = chunk['khinterneskennzeichen'].fillna('')
@@ -275,7 +272,7 @@ class FALLPreprocessor(CSVPreprocessor):
     def __append_zero_to_column_if_length_below_requirement(self, column: str, length_required: int):
         path_parent = os.path.dirname(self.PATH_CSV)
         path_dummy = os.path.sep.join([path_parent, 'dummy.csv'])
-        encoding = self.get_csv_encoding(self.PATH_CSV)
+        encoding = self.get_csv_encoding()
         df_tmp = pd.DataFrame()
         for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=encoding, dtype=str):
             chunk[column] = chunk[column].fillna('')
@@ -326,9 +323,8 @@ class ICDPreprocessor(CSVPreprocessor):
 
     def __write_header_with_secondary_diagnoses_columns_to_csv(self, header: str):
         list_header = header.split(self.CSV_SEPARATOR)
-        encoding = self.get_csv_encoding(self.PATH_CSV)
-        df = pd.read_csv(self.PATH_CSV, sep=self.CSV_SEPARATOR, encoding=encoding, dtype=str)
-        df.set_axis(list_header, axis='columns', inplace=True)
+        df = pd.read_csv(self.PATH_CSV, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(), dtype=str)
+        df.columns = list_header
         df['sekundärkode'] = ''
         df['sekundärlokalisation'] = ''
         df['sekundärdiagnosensicherheit'] = ''
@@ -364,7 +360,7 @@ class CSVFileVerifier(CSVReader, ABC):
         return True
 
     def check_column_names_of_csv(self):
-        df = pd.read_csv(self.PATH_CSV, nrows=0, index_col=None, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(self.PATH_CSV), dtype=str)
+        df = pd.read_csv(self.PATH_CSV, nrows=0, index_col=None, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(), dtype=str)
         set_required_columns = set(self.DICT_COLUMN_PATTERN.keys())
         set_matched_columns = set_required_columns.intersection(set(df.columns))
         if set_matched_columns != set_required_columns:
@@ -372,7 +368,7 @@ class CSVFileVerifier(CSVReader, ABC):
 
     def get_unique_ids_of_valid_encounter(self) -> list:
         set_valid_ids = set()
-        for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(self.PATH_CSV), dtype=str):
+        for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(), dtype=str):
             chunk = chunk[list(self.DICT_COLUMN_PATTERN.keys())]
             chunk = chunk.fillna('')
             for column in chunk.columns.values:
@@ -396,7 +392,7 @@ class CSVFileVerifier(CSVReader, ABC):
         indeces_wrong_syntax = chunk[(chunk[column_name] != '') & (~chunk[column_name].str.match(pattern))].index
         if len(indeces_wrong_syntax):
             if column_name not in self.MANDATORY_COLUMN_VALUES:
-                chunk.at[indeces_wrong_syntax, column_name] = ''
+                chunk.loc[indeces_wrong_syntax, column_name] = ''
             else:
                 chunk = chunk.drop(indeces_wrong_syntax)
         if len(indeces_empty_fields) and column_name in self.MANDATORY_COLUMN_VALUES:
@@ -411,24 +407,24 @@ class FALLVerifier(CSVFileVerifier):
     """
 
     CSV_NAME = 'fall.csv'
-    DICT_COLUMN_PATTERN = {'khinterneskennzeichen':         '^.*$',
-                           'ikderkrankenkasse':             '^\w*$',
-                           'geburtsjahr':                   '^(19|20)\d{2}$',
-                           'geschlecht':                    '^[mwdx]$',
-                           'plz':                           '^\d{5}$',
-                           'aufnahmedatum':                 '^\d{12}$',
-                           'aufnahmegrund':                 '^(0[1-9]|10)\d{2}$',
-                           'aufnahmeanlass':                '^[EZNRVAGB]$',
-                           'fallzusammenführung':           '^(J|N)$',
-                           'fallzusammenführungsgrund':     '^OG|MD|KO|RU|WR|MF|P[WRM]|Z[OMKRW]$',
-                           'verweildauerintensiv':          '^\d*(,\d{2})?$',
-                           'entlassungsdatum':              '^\d{12}$',
-                           'entlassungsgrund':              '^\d{2}.{1}$',
-                           'beatmungsstunden':              '^\d*(,\d{2})?$',
-                           'behandlungsbeginnvorstationär': '^\d{8}$',
-                           'behandlungstagevorstationär':   '^\d{0,4}$',
-                           'behandlungsendenachstationär':  '^\d{8}$',
-                           'behandlungstagenachstationär':  '^\d{0,4}$'}
+    DICT_COLUMN_PATTERN = {'khinterneskennzeichen':         r'^.*$',
+                           'ikderkrankenkasse':             r'^\w*$',
+                           'geburtsjahr':                   r'^(19|20)\d{2}$',
+                           'geschlecht':                    r'^[mwdx]$',
+                           'plz':                           r'^\d{5}$',
+                           'aufnahmedatum':                 r'^\d{12}$',
+                           'aufnahmegrund':                 r'^(0[1-9]|10)\d{2}$',
+                           'aufnahmeanlass':                r'^[EZNRVAGB]$',
+                           'fallzusammenführung':           r'^(J|N)$',
+                           'fallzusammenführungsgrund':     r'^OG|MD|KO|RU|WR|MF|P[WRM]|Z[OMKRW]$',
+                           'verweildauerintensiv':          r'^\d*(,\d{2})?$',
+                           'entlassungsdatum':              r'^\d{12}$',
+                           'entlassungsgrund':              r'^\d{2}.{1}$',
+                           'beatmungsstunden':              r'^\d*(,\d{2})?$',
+                           'behandlungsbeginnvorstationär': r'^\d{8}$',
+                           'behandlungstagevorstationär':   r'^\d{0,4}$',
+                           'behandlungsendenachstationär':  r'^\d{8}$',
+                           'behandlungstagenachstationär':  r'^\d{0,4}$'}
     MANDATORY_COLUMN_VALUES = ['khinterneskennzeichen', 'aufnahmedatum', 'aufnahmegrund', 'aufnahmeanlass']
 
     def is_csv_in_folder(self) -> bool:
@@ -443,7 +439,7 @@ class FALLVerifier(CSVFileVerifier):
         return list_valid_ids
 
     def count_total_encounter(self) -> int:
-        with open(self.PATH_CSV, encoding=self.get_csv_encoding(self.PATH_CSV)) as csv:
+        with open(self.PATH_CSV, encoding=self.get_csv_encoding()) as csv:
             total = sum(1 for _ in csv)
         return total - 1
 
@@ -454,7 +450,7 @@ class FALLVerifier(CSVFileVerifier):
         to create the mapping dataframe required by CSVObservationFactUploadManager
         """
         dict_case_admissions = {}
-        for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(self.PATH_CSV), dtype=str):
+        for chunk in pd.read_csv(self.PATH_CSV, chunksize=self.SIZE_CHUNKS, sep=self.CSV_SEPARATOR, encoding=self.get_csv_encoding(), dtype=str):
             chunk = chunk[list(self.DICT_COLUMN_PATTERN.keys())]
             chunk = chunk.fillna('')
             for column in chunk.columns.values:
@@ -468,35 +464,35 @@ class FALLVerifier(CSVFileVerifier):
 
 class FABVerifier(CSVFileVerifier):
     CSV_NAME = 'fab.csv'
-    DICT_COLUMN_PATTERN = {'khinterneskennzeichen': '^.*$',
-                           'fachabteilung':         '^(HA|BA|BE)\d{4}$',
-                           'fabaufnahmedatum':      '^\d{12}$',
-                           'fabentlassungsdatum':   '^\d{12}$',
-                           'kennungintensivbett':   '^(J|N)$'}
+    DICT_COLUMN_PATTERN = {'khinterneskennzeichen': r'^.*$',
+                           'fachabteilung':         r'^(HA|BA|BE)\d{4}$',
+                           'fabaufnahmedatum':      r'^\d{12}$',
+                           'fabentlassungsdatum':   r'^\d{12}$',
+                           'kennungintensivbett':   r'^(J|N)$'}
     MANDATORY_COLUMN_VALUES = ['khinterneskennzeichen', 'fachabteilung', 'fabaufnahmedatum', 'kennungintensivbett']
 
 
 class ICDVerifier(CSVFileVerifier):
     CSV_NAME = 'icd.csv'
-    DICT_COLUMN_PATTERN = {'khinterneskennzeichen':       '^.*$',
-                           'diagnoseart':                 '^(HD|ND|SD)$',
-                           'icdversion':                  '^20\d{2}$',
-                           'icdkode':                     '^[A-Z]\d{2}(\.)?.{0,5}$',
-                           'lokalisation':                '^[BLR]$',
-                           'diagnosensicherheit':         '^[AVZG]$',
-                           'sekundärkode':                '^[A-Z]\d{2}(\.)?.{0,5}$',
-                           'sekundärlokalisation':        '^[BLR]$',
-                           'sekundärdiagnosensicherheit': '^[AVZG]$'}
+    DICT_COLUMN_PATTERN = {'khinterneskennzeichen':       r'^.*$',
+                           'diagnoseart':                 r'^(HD|ND|SD)$',
+                           'icdversion':                  r'^20\d{2}$',
+                           'icdkode':                     r'^[A-Z]\d{2}(\.)?.{0,5}$',
+                           'lokalisation':                r'^[BLR]$',
+                           'diagnosensicherheit':         r'^[AVZG]$',
+                           'sekundärkode':                r'^[A-Z]\d{2}(\.)?.{0,5}$',
+                           'sekundärlokalisation':        r'^[BLR]$',
+                           'sekundärdiagnosensicherheit': r'^[AVZG]$'}
     MANDATORY_COLUMN_VALUES = ['khinterneskennzeichen', 'diagnoseart', 'icdversion', 'icdkode']
 
 
 class OPSVerifier(CSVFileVerifier):
     CSV_NAME = 'ops.csv'
-    DICT_COLUMN_PATTERN = {'khinterneskennzeichen': '^.*$',
-                           'opsversion':            '^20\d{2}$',
-                           'opskode':               '^\d{1}(\-)?\d{2}(.{1})?(\.)?.{0,3}$',
-                           'opsdatum':              '^\d{12}$',
-                           'lokalisation':          '^[BLR]$'}
+    DICT_COLUMN_PATTERN = {'khinterneskennzeichen': r'^.*$',
+                           'opsversion':            r'^20\d{2}$',
+                           'opskode':               r'^\d{1}(\-)?\d{2}(.{1})?(\.)?.{0,3}$',
+                           'opsdatum':              r'^\d{12}$',
+                           'lokalisation':          r'^[BLR]$'}
     MANDATORY_COLUMN_VALUES = ['khinterneskennzeichen', 'opsversion', 'opskode', 'opsdatum']
 
 
@@ -821,7 +817,7 @@ class DatabaseConnection(ABC):
         self.I2B2_CONNECTION_URL = os.environ['connection-url']
 
     def connect(self):
-        pattern = 'jdbc:postgresql://(.*?)(\?searchPath=.*)?$'
+        pattern = r'jdbc:postgresql://(.*?)(\?searchPath=.*)?$'
         connection = re.search(pattern, self.I2B2_CONNECTION_URL).group(1)
         self.ENGINE = db.create_engine('postgresql+psycopg2://{0}:{1}@{2}'.format(self.USERNAME, self.PASSWORD, connection))
         self.CONNECTION = self.ENGINE.connect()
@@ -870,9 +866,16 @@ class EncounterInfoExtractorWithEncounterId(DatabaseExtractor):
             enc = db.Table('encounter_mapping', db.MetaData(), autoload_with=self.ENGINE)
             pat = db.Table('patient_mapping', db.MetaData(), autoload_with=self.ENGINE)
             opt = db.Table('optinout_patients', db.MetaData(), autoload_with=self.ENGINE)
-            query = db.select([enc.c['encounter_ide'], enc.c['encounter_num'], pat.c['patient_num']]).select_from(
-                    enc.join(pat, enc.c['patient_ide'] == pat.c['patient_ide']).join(opt, pat.c['patient_ide'] == opt.c['pat_psn'], isouter=True)).where(
-                    db.or_(opt.c['study_id'] != 'AKTIN', opt.c['pat_psn'].is_(None)))
+            query = db.select(
+                enc.c.encounter_ide,
+                enc.c.encounter_num,
+                pat.c.patient_num
+            ).select_from(
+                enc.join(pat, enc.c.patient_ide == pat.c.patient_ide)
+                .join(opt, pat.c.patient_ide == opt.c.pat_psn, isouter=True)
+            ).where(
+                db.or_(opt.c.study_id != 'AKTIN', opt.c.pat_psn.is_(None))
+            )
             df = self._stream_query_into_df(query)
             df.rename(columns={'encounter_ide': 'match_id'}, inplace=True)
             return df
@@ -893,9 +896,19 @@ class EncounterInfoExtractorWithBillingId(DatabaseExtractor):
             fact = db.Table('observation_fact', db.MetaData(), autoload_with=self.ENGINE)
             pat = db.Table('patient_mapping', db.MetaData(), autoload_with=self.ENGINE)
             opt = db.Table('optinout_patients', db.MetaData(), autoload_with=self.ENGINE)
-            query = db.select([fact.c['tval_char'], fact.c['encounter_num'], fact.c['patient_num']]).select_from(
-                    fact.join(pat, fact.c['patient_num'] == pat.c['patient_num']).join(opt, pat.c['patient_ide'] == opt.c['pat_psn'], isouter=True)).where(
-                    db.and_(db.or_(opt.c['study_id'] != 'AKTIN', opt.c['pat_psn'].is_(None)), fact.c['concept_cd'] == 'AKTIN:Fallkennzeichen'))
+            query = db.select(
+                fact.c.tval_char,
+                fact.c.encounter_num,
+                fact.c.patient_num
+            ).select_from(
+                fact.join(pat, fact.c.patient_num == pat.c.patient_num)
+                .join(opt, pat.c.patient_ide == opt.c.pat_psn, isouter=True)
+            ).where(
+                db.and_(
+                    db.or_(opt.c.study_id != 'AKTIN', opt.c.pat_psn.is_(None)),
+                    fact.c.concept_cd == 'AKTIN:Fallkennzeichen'
+                )
+            )
             df = self._stream_query_into_df(query)
             df.rename(columns={'tval_char': 'match_id'}, inplace=True)
             return df
@@ -1031,7 +1044,7 @@ class ObservationFactTableHandler(TableHandler):
         """
         transaction = self.CONNECTION.begin()
         try:
-            self.CONNECTION.execute(self.TABLE.insert(), list_dicts)
+            self.CONNECTION.execute(db.insert(self.TABLE), list_dicts)
             transaction.commit()
         except exc.SQLAlchemyError:
             transaction.rollback()
@@ -1048,7 +1061,12 @@ class ObservationFactTableHandler(TableHandler):
             sourcesystem_cd = sourcesystem[0][0]
             transaction = self.CONNECTION.begin()
             try:
-                statement_delete = self.TABLE.delete().where(self.TABLE.c['encounter_num'] == str(identifier)).where(self.TABLE.c['sourcesystem_cd'] == sourcesystem_cd)
+                statement_delete = db.delete(self.TABLE).where(
+                    db.and_(
+                        self.TABLE.c.encounter_num == str(identifier),
+                        self.TABLE.c.sourcesystem_cd == sourcesystem_cd
+                    )
+                )
                 self.CONNECTION.execute(statement_delete)
                 transaction.commit()
             except exc.SQLAlchemyError:
@@ -1067,8 +1085,14 @@ class ObservationFactTableHandler(TableHandler):
         FALLObservationFactConverter) of the corresponding encounter with the metadata
         of this script.
         """
-        query = db.select([self.TABLE.c['sourcesystem_cd']]).where(self.TABLE.c['encounter_num'] == str(num_enc)).where(self.TABLE.c['concept_cd'] == 'P21:SCRIPT').where(
-                self.TABLE.c['modifier_cd'] == 'scriptId').where(self.TABLE.c['provider_id'] == 'P21')
+        query = db.select(self.TABLE.c.sourcesystem_cd).where(
+            db.and_(
+                self.TABLE.c.encounter_num == str(num_enc),
+                self.TABLE.c.concept_cd == 'P21:SCRIPT',
+                self.TABLE.c.modifier_cd == 'scriptId',
+                self.TABLE.c.provider_id == 'P21'
+            )
+        )
         return self.CONNECTION.execute(query).fetchall()
 
     @staticmethod
@@ -1102,7 +1126,7 @@ class CSVObservationFactUploadManager(ABC):
         try:
             self.TABLEHANDLER.connect()
             self.TABLEHANDLER.reflect_table()
-            for chunk in pd.read_csv(self.VERIFIER.PATH_CSV, chunksize=self.VERIFIER.SIZE_CHUNKS, sep=self.VERIFIER.CSV_SEPARATOR, encoding=self.VERIFIER.get_csv_encoding(self.VERIFIER.PATH_CSV), dtype=str):
+            for chunk in pd.read_csv(self.VERIFIER.PATH_CSV, chunksize=self.VERIFIER.SIZE_CHUNKS, sep=self.VERIFIER.CSV_SEPARATOR, encoding=self.VERIFIER.get_csv_encoding(), dtype=str):
                 chunk = self._clear_chunk_from_invalid_data(chunk)
                 if chunk.empty:
                     continue
