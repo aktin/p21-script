@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*
 # Created on Wed Jan 20 11:36:55 2021
-# @VERSION=1.6rc1-1
+# @VERSION=1.5.3
 # @VIEWNAME=P21-Importskript
 # @MIMETYPE=zip
 # @ID=p21
 
 #
-#      Copyright (c) 2022  Alexander Kombeiz
+#      Copyright (c) 2022  AKTIN
 #
 #      This program is free software: you can redistribute it and/or modify
 #      it under the terms of the GNU Affero General Public License as
