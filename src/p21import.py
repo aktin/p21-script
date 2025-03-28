@@ -88,47 +88,128 @@ class P21Importer:
                 preprocessor.preprocess()
                 verifier.check_column_names_of_csv()
 
-    def verify_file(self):
+    def __verify_and_prepare(self):
+        """
+        Extracts the zip file, preprocesses the CSV files, verifies the data,
+        and returns the necessary components for further processing.
+
+        This method performs the following steps:
+        1. Extracts the contents of the zip file to a temporary folder and renames files to lowercase.
+        2. Preprocesses and validates the CSV files in the extracted folder.
+        3. Creates an instance of `FALLVerifier` to validate the `fall.csv` file.
+        4. Retrieves the list of unique IDs of valid encounters from the `fall.csv` file.
+
+        Returns:
+            tuple:
+                - path_tmp (str): The path to the temporary folder containing the extracted files.
+                - verifier_fall (FALLVerifier): An instance of `FALLVerifier` for verifying `fall.csv`.
+                - list_valid_ids (list): A list of unique IDs of valid encounters extracted from `fall.csv`.
+        """
+        path_tmp = self.__extract_and_rename_zip_content()
+        self.__preprocess_and_check_csv_files(path_tmp)
+        verifier_fall = FALLVerifier(path_tmp)
+        list_valid_ids = verifier_fall.get_unique_ids_of_valid_encounter()
+        return path_tmp, verifier_fall, list_valid_ids
+
+    def __get_matched(self, list_valid_ids, as_df=False):
+        """
+        Matches a list of valid encounter IDs with database records using billing IDs first,
+        and falls back to encounter IDs if billing ID matching fails.
+
+        This method attempts to match the provided encounter IDs with database records.
+        If `as_df` is True, it returns a DataFrame containing the matched records.
+        Otherwise, it returns a list of matched encounter IDs.
+
+        Args:
+            list_valid_ids (list): A list of valid encounter IDs extracted from the CSV file.
+            as_df (bool, optional): If True, returns a DataFrame of matched records.
+                                    If False, returns a list of matched encounter IDs. Defaults to False.
+
+        Returns:
+            list or pd.DataFrame: A list of matched encounter IDs or a DataFrame of matched records,
+                                depending on the value of `as_df`.
+
+        Raises:
+            ValueError: If no matches are found using either billing IDs or encounter IDs.
+        """
         try:
-            path_tmp = self.__extract_and_rename_zip_content()
-            self.__preprocess_and_check_csv_files(path_tmp)
-            verifier_fall = FALLVerifier(path_tmp)
-            list_valid_ids = verifier_fall.get_unique_ids_of_valid_encounter()
-            try:
-                extractor = EncounterInfoExtractorWithBillingId()
-                matcher = DatabaseEncounterMatcher(extractor)
-                list_matched = matcher.get_matched_list(list_valid_ids)
-            except ValueError:
-                print(
-                    "matching by billing id failed. trying matching by encounter id..."
-                )
-                extractor = EncounterInfoExtractorWithEncounterId()
-                matcher = DatabaseEncounterMatcher(extractor)
-                list_matched = matcher.get_matched_list(list_valid_ids)
-            print("Fälle gesamt: %d" % FALLVerifier(path_tmp).count_total_encounter())
-            print("Fälle valide: %d" % len(list_valid_ids))
-            print("Valide Fälle gematcht mit Datenbank: %d" % len(list_matched))
+            extractor = EncounterInfoExtractorWithBillingId()
+            matcher = DatabaseEncounterMatcher(extractor)
+            return (
+                matcher.get_matched_df(list_valid_ids)
+                if as_df
+                else matcher.get_matched_list(list_valid_ids)
+            )
+        except ValueError:
+            print("Matching by billing id failed. trying matching by encounter id...")
+            extractor = EncounterInfoExtractorWithEncounterId()
+            matcher = DatabaseEncounterMatcher(extractor)
+            return (
+                matcher.get_matched_df(list_valid_ids)
+                if as_df
+                else matcher.get_matched_list(list_valid_ids)
+            )
+
+    def verify_file(self):
+        """
+        Verifies the contents of the provided zip file and matches valid encounters with database records.
+
+        This method performs the following steps:
+        1. Extracts and preprocesses the contents of the zip file.
+        2. Validates the `fall.csv` file and retrieves a list of valid encounter IDs.
+        3. Matches the valid encounter IDs with database records using billing IDs or encounter IDs.
+        4. Prints the total number of encounters, the number of valid encounters,
+        and the number of valid encounters matched with the database.
+
+        Returns:
+            None
+
+        Raises:
+            SystemExit: If any critical error occurs during the verification process.
+        """
+        try:
+            _, verifier_fall, list_valid_ids = self.__verify_and_prepare()
+            list_matched = self.__get_matched(list_valid_ids, as_df=False)
+            print(f"Fälle gesamt: {verifier_fall.count_total_encounter()}")
+            print(f"Fälle valide: {len(list_valid_ids)}")
+            print(f"Valide Fälle gematcht mit Datenbank: {len(list_matched)}")
         finally:
             self.TFM.remove_tmp_folder()
 
     def import_file(self):
+        """
+        Imports and processes a file, uploading data to the appropriate managers.
+
+        This method performs the following steps:
+        1. Verifies and prepares the input data.
+        2. Matches valid IDs and retrieves admission dates.
+        3. Merges the matched data with admission dates.
+        4. Iterates through a list of uploader classes to upload the processed data.
+        5. Tracks and prints the number of new and updated cases.
+
+        Global Variables:
+            num_imports (int): Tracks the number of new cases imported.
+            num_updates (int): Tracks the number of existing cases updated.
+
+        Raises:
+            SystemExit: Exits the program after successful execution.
+
+        Cleanup:
+            Ensures temporary folders are removed after execution.
+
+        Note:
+            The method relies on several external classes and methods, such as:
+            - `__verify_and_prepare`
+            - `__get_matched`
+            - `FALLObservationFactUploadManager`
+            - `FABObservationFactUploadManager`
+            - `ICDObservationFactUploadManager`
+            - `OPSObservationFactUploadManager`
+        """
         global num_imports, num_updates
         try:
-            path_tmp = self.__extract_and_rename_zip_content()
-            self.__preprocess_and_check_csv_files(path_tmp)
-            verifier_fall = FALLVerifier(path_tmp)
-            list_valid_ids = verifier_fall.get_unique_ids_of_valid_encounter()
-            try:
-                extractor = EncounterInfoExtractorWithBillingId()
-                matcher = DatabaseEncounterMatcher(extractor)
-                df_mapping = matcher.get_matched_df(list_valid_ids)
-            except ValueError:
-                print(
-                    "matching by billing id failed. trying matching by encounter id..."
-                )
-                extractor = EncounterInfoExtractorWithEncounterId()
-                matcher = DatabaseEncounterMatcher(extractor)
-                df_mapping = matcher.get_matched_df(list_valid_ids)
+            path_tmp, verifier_fall, list_valid_ids = self.__verify_and_prepare()
+            df_mapping = self.__get_matched(list_valid_ids, as_df=True)
             dict_admission_dates = (
                 verifier_fall.get_unique_ids_of_valid_encounter_with_admission_dates()
             )
@@ -139,21 +220,21 @@ class P21Importer:
                 }
             )
             df_mapping = pd.merge(df_mapping, df_admission_dates, on=["encounter_id"])
-            for u in [
+            for uploader_class in [
                 FALLObservationFactUploadManager,
                 FABObservationFactUploadManager,
                 ICDObservationFactUploadManager,
                 OPSObservationFactUploadManager,
             ]:
-                uploader = u(df_mapping, path_tmp)
+                uploader = uploader_class(df_mapping, path_tmp)
                 if uploader.VERIFIER.is_csv_in_folder():
                     uploader.upload_csv()
                 if isinstance(uploader, FALLObservationFactUploadManager):
                     num_imports = uploader.NUM_IMPORTS
                     num_updates = uploader.NUM_UPDATES
-            print("Fälle hochgeladen: %d" % (num_imports + num_updates))
-            print("Neue Fälle hochgeladen: %d" % num_imports)
-            print("Bestehende Fälle aktualisiert: %d" % num_updates)
+            print(f"Fälle hochgeladen: {num_imports + num_updates}")
+            print(f"Neue Fälle hochgeladen: {num_imports}")
+            print(f"Bestehende Fälle aktualisiert: {num_updates}")
             raise SystemExit
         finally:
             self.TFM.remove_tmp_folder()
@@ -1492,6 +1573,7 @@ class ObservationFactTableHandler(TableHandler):
         Uploads observation_fact rows. Each dict corresponds to one row in the database
         and must contain Key-Value-Pairs for each column in table.
         """
+        self.CONNECTION.rollback()
         transaction = self.CONNECTION.begin()
         try:
             self.CONNECTION.execute(self.TABLE.insert(), list_dicts)
@@ -1509,7 +1591,7 @@ class ObservationFactTableHandler(TableHandler):
         sourcesystem = self.__get_sourcesystem_of_encounter(identifier)
         if self.__is_sourcesystem_valid(sourcesystem):
             sourcesystem_cd = sourcesystem[0][0]
-            self.CONNECTION.commit()
+            self.CONNECTION.commit()  # For new version of SQLAlchemy
             transaction = self.CONNECTION.begin()
             try:
                 statement_delete = (
