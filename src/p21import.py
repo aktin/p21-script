@@ -32,6 +32,7 @@ import sys
 import traceback
 import zipfile
 from abc import ABC, abstractmethod
+from typing import Tuple
 from datetime import datetime
 
 import chardet
@@ -153,6 +154,7 @@ class P21Importer:
             print("Fälle hochgeladen: %d" % (num_imports + num_updates))
             print("Neue Fälle hochgeladen: %d" % num_imports)
             print("Bestehende Fälle aktualisiert: %d" % num_updates)
+            raise SystemExit
         finally:
             self.TFM.remove_tmp_folder()
 
@@ -400,7 +402,8 @@ class ICDPreprocessor(CSVPreprocessor):
         df = pd.read_csv(
             self.PATH_CSV, sep=self.CSV_SEPARATOR, encoding=encoding, dtype=str
         )
-        df.set_axis(list_header, axis="columns", inplace=True)
+        # df.set_axis(list_header, axis="columns", inplace=True)
+        df = df.set_axis(list_header, axis="columns")
         df["sekundärkode"] = ""
         df["sekundärlokalisation"] = ""
         df["sekundärdiagnosensicherheit"] = ""
@@ -1291,11 +1294,9 @@ class EncounterInfoExtractorWithEncounterId(DatabaseExtractor):
             )
             query = (
                 db.select(
-                    [
-                        enc.c["encounter_ide"],
-                        enc.c["encounter_num"],
-                        pat.c["patient_num"],
-                    ]
+                    enc.c["encounter_ide"],
+                    enc.c["encounter_num"],
+                    pat.c["patient_num"],
                 )
                 .select_from(
                     enc.join(pat, enc.c["patient_ide"] == pat.c["patient_ide"]).join(
@@ -1314,7 +1315,7 @@ class EncounterInfoExtractorWithEncounterId(DatabaseExtractor):
 class EncounterInfoExtractorWithBillingId(DatabaseExtractor):
     """
     SQLAlchemy-Query to extract billing_id, encounter_num and patient_num for AKTIN
-    optin encounter from database. Column for billing_id is renmaed to 'match_id'
+    optin encounter from database. Column for billing_id is renamed to 'match_id'
     to streamline the matching in DatabaseEncounterMatcher.
     """
 
@@ -1330,11 +1331,9 @@ class EncounterInfoExtractorWithBillingId(DatabaseExtractor):
             )
             query = (
                 db.select(
-                    [
-                        fact.c["tval_char"],
-                        fact.c["encounter_num"],
-                        fact.c["patient_num"],
-                    ]
+                    fact.c["tval_char"],
+                    fact.c["encounter_num"],
+                    fact.c["patient_num"],
                 )
                 .select_from(
                     fact.join(pat, fact.c["patient_num"] == pat.c["patient_num"]).join(
@@ -1510,6 +1509,7 @@ class ObservationFactTableHandler(TableHandler):
         sourcesystem = self.__get_sourcesystem_of_encounter(identifier)
         if self.__is_sourcesystem_valid(sourcesystem):
             sourcesystem_cd = sourcesystem[0][0]
+            self.CONNECTION.commit()
             transaction = self.CONNECTION.begin()
             try:
                 statement_delete = (
@@ -1536,7 +1536,7 @@ class ObservationFactTableHandler(TableHandler):
         of this script.
         """
         query = (
-            db.select([self.TABLE.c["sourcesystem_cd"]])
+            db.select(self.TABLE.c["sourcesystem_cd"])
             .where(self.TABLE.c["encounter_num"] == str(num_enc))
             .where(self.TABLE.c["concept_cd"] == "P21:SCRIPT")
             .where(self.TABLE.c["modifier_cd"] == "scriptId")
