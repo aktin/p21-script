@@ -1308,26 +1308,25 @@ class ObservationFactInstanceCounter:
 
 class DatabaseConnection(ABC):
     ENGINE: db.engine.Engine = None
-    CONNECTION: db.engine.Connection = None
 
     def __init__(self):
         self.USERNAME = os.environ["username"]
         self.PASSWORD = os.environ["password"]
         self.I2B2_CONNECTION_URL = os.environ["connection-url"]
+        self.__init_engine()
 
-    def connect(self):
+    def __init_engine(self):
         pattern = "jdbc:postgresql://(.*?)(\?searchPath=.*)?$"
         connection = re.search(pattern, self.I2B2_CONNECTION_URL).group(1)
         self.ENGINE = db.create_engine(
-            "postgresql+psycopg2://{0}:{1}@{2}".format(
-                self.USERNAME, self.PASSWORD, connection
-            )
+            f"postgresql+psycopg2://{self.USERNAME}:{self.PASSWORD}@{connection}",
+            pool_pre_ping=True,
         )
-        self.CONNECTION = self.ENGINE.connect()
 
-    def close(self):
-        if self.CONNECTION:
-            self.CONNECTION.close()
+    def open_connection(self):
+        return self.ENGINE.connect()
+
+    def __del__(self):
         if self.ENGINE:
             self.ENGINE.dispose()
 
@@ -1341,19 +1340,20 @@ class DatabaseExtractor(DatabaseConnection, ABC):
 
     def _stream_query_into_df(self, query: db.sql.expression) -> pd.DataFrame:
         df = pd.DataFrame()
-        result = self.CONNECTION.execution_options(stream_results=True).execute(query)
-        while True:
-            chunk = result.fetchmany(self.SIZE_CHUNKS)
-            if not chunk:
-                break
+        with self.open_connection() as conn:
+            result = conn.execution_options(stream_results=True).execute(query)
+            while True:
+                chunk = result.fetchmany(self.SIZE_CHUNKS)
+                if not chunk:
+                    break
+                if df.empty:
+                    df = pd.DataFrame(chunk)
+                else:
+                    df = df.append(chunk, ignore_index=True)
             if df.empty:
-                df = pd.DataFrame(chunk)
-            else:
-                df = df.append(chunk, ignore_index=True)
-        if df.empty:
-            raise ValueError("no entries for database query found")
-        df.columns = result.keys()
-        return df
+                raise ValueError("no entries for database query found")
+            df.columns = result.keys()
+            return df
 
 
 class EncounterInfoExtractorWithEncounterId(DatabaseExtractor):
@@ -1364,33 +1364,29 @@ class EncounterInfoExtractorWithEncounterId(DatabaseExtractor):
     """
 
     def extract(self) -> pd.DataFrame:
-        try:
-            self.connect()
-            enc = db.Table(
-                "encounter_mapping", db.MetaData(), autoload_with=self.ENGINE
-            )
-            pat = db.Table("patient_mapping", db.MetaData(), autoload_with=self.ENGINE)
-            opt = db.Table(
-                "optinout_patients", db.MetaData(), autoload_with=self.ENGINE
-            )
-            query = (
-                db.select(
-                    enc.c["encounter_ide"],
-                    enc.c["encounter_num"],
-                    pat.c["patient_num"],
-                )
-                .select_from(
-                    enc.join(pat, enc.c["patient_ide"] == pat.c["patient_ide"]).join(
-                        opt, pat.c["patient_ide"] == opt.c["pat_psn"], isouter=True
-                    )
-                )
-                .where(db.or_(opt.c["study_id"] != "AKTIN", opt.c["pat_psn"].is_(None)))
-            )
-            df = self._stream_query_into_df(query)
-            df.rename(columns={"encounter_ide": "match_id"}, inplace=True)
-            return df
-        finally:
-            self.close()
+          enc = db.Table(
+              "encounter_mapping", db.MetaData(), autoload_with=self.ENGINE
+          )
+          pat = db.Table("patient_mapping", db.MetaData(), autoload_with=self.ENGINE)
+          opt = db.Table(
+              "optinout_patients", db.MetaData(), autoload_with=self.ENGINE
+          )
+          query = (
+              db.select(
+                  enc.c["encounter_ide"],
+                  enc.c["encounter_num"],
+                  pat.c["patient_num"],
+              )
+              .select_from(
+                  enc.join(pat, enc.c["patient_ide"] == pat.c["patient_ide"]).join(
+                      opt, pat.c["patient_ide"] == opt.c["pat_psn"], isouter=True
+                  )
+              )
+              .where(db.or_(opt.c["study_id"] != "AKTIN", opt.c["pat_psn"].is_(None)))
+          )
+          df = self._stream_query_into_df(query)
+          df.rename(columns={"encounter_ide": "match_id"}, inplace=True)
+          return df
 
 
 class EncounterInfoExtractorWithBillingId(DatabaseExtractor):
@@ -1401,40 +1397,36 @@ class EncounterInfoExtractorWithBillingId(DatabaseExtractor):
     """
 
     def extract(self) -> pd.DataFrame:
-        try:
-            self.connect()
-            fact = db.Table(
-                "observation_fact", db.MetaData(), autoload_with=self.ENGINE
-            )
-            pat = db.Table("patient_mapping", db.MetaData(), autoload_with=self.ENGINE)
-            opt = db.Table(
-                "optinout_patients", db.MetaData(), autoload_with=self.ENGINE
-            )
-            query = (
-                db.select(
-                    fact.c["tval_char"],
-                    fact.c["encounter_num"],
-                    fact.c["patient_num"],
-                )
-                .select_from(
-                    fact.join(pat, fact.c["patient_num"] == pat.c["patient_num"]).join(
-                        opt, pat.c["patient_ide"] == opt.c["pat_psn"], isouter=True
-                    )
-                )
-                .where(
-                    db.and_(
-                        db.or_(
-                            opt.c["study_id"] != "AKTIN", opt.c["pat_psn"].is_(None)
-                        ),
-                        fact.c["concept_cd"] == "AKTIN:Fallkennzeichen",
-                    )
-                )
-            )
-            df = self._stream_query_into_df(query)
-            df.rename(columns={"tval_char": "match_id"}, inplace=True)
-            return df
-        finally:
-            self.close()
+          fact = db.Table(
+              "observation_fact", db.MetaData(), autoload_with=self.ENGINE
+          )
+          pat = db.Table("patient_mapping", db.MetaData(), autoload_with=self.ENGINE)
+          opt = db.Table(
+              "optinout_patients", db.MetaData(), autoload_with=self.ENGINE
+          )
+          query = (
+              db.select(
+                  fact.c["tval_char"],
+                  fact.c["encounter_num"],
+                  fact.c["patient_num"],
+              )
+              .select_from(
+                  fact.join(pat, fact.c["patient_num"] == pat.c["patient_num"]).join(
+                      opt, pat.c["patient_ide"] == opt.c["pat_psn"], isouter=True
+                  )
+              )
+              .where(
+                  db.and_(
+                      db.or_(
+                          opt.c["study_id"] != "AKTIN", opt.c["pat_psn"].is_(None)
+                      ),
+                      fact.c["concept_cd"] == "AKTIN:Fallkennzeichen",
+                  )
+              )
+          )
+          df = self._stream_query_into_df(query)
+          df.rename(columns={"tval_char": "match_id"}, inplace=True)
+          return df
 
 
 class DatabaseEncounterMatcher:
@@ -1569,42 +1561,33 @@ class ObservationFactTableHandler(TableHandler):
         )
 
     def upload_data(self, list_dicts: list):
-        """
-        Uploads observation_fact rows. Each dict corresponds to one row in the database
-        and must contain Key-Value-Pairs for each column in table.
-        """
-        self.CONNECTION.rollback()
-        transaction = self.CONNECTION.begin()
-        try:
-            self.CONNECTION.execute(self.TABLE.insert(), list_dicts)
-            transaction.commit()
-        except exc.SQLAlchemyError:
-            transaction.rollback()
-            traceback.print_exc()
-            raise SystemExit("upload operation failed")
+        with self.open_connection() as conn:
+            with conn.begin() as transaction:
+                try:
+                    conn.execute(self.TABLE.insert(), list_dicts)
+                except exc.SQLAlchemyError:
+                    transaction.rollback()
+                    traceback.print_exc()
+                    raise SystemExit("upload operation failed")
+
 
     def delete_data(self, identifier: str):
-        """
-        Deletes all p21 data of given encounter. Data to delete is identified by the
-        given encounter_num and its corresponding sourcesystem_cd (id of this script + uuid of the zip file)
-        """
         sourcesystem = self.__get_sourcesystem_of_encounter(identifier)
         if self.__is_sourcesystem_valid(sourcesystem):
             sourcesystem_cd = sourcesystem[0][0]
-            self.CONNECTION.commit()  # For new version of SQLAlchemy
-            transaction = self.CONNECTION.begin()
-            try:
-                statement_delete = (
-                    self.TABLE.delete()
-                    .where(self.TABLE.c["encounter_num"] == str(identifier))
-                    .where(self.TABLE.c["sourcesystem_cd"] == sourcesystem_cd)
-                )
-                self.CONNECTION.execute(statement_delete)
-                transaction.commit()
-            except exc.SQLAlchemyError:
-                transaction.rollback()
-                traceback.print_exc()
-                raise SystemExit("delete operation for encounter failed")
+            with self.open_connection() as conn:
+                with conn.begin() as transaction:
+                    try:
+                        statement_delete = (
+                            self.TABLE.delete()
+                            .where(self.TABLE.c["encounter_num"] == str(identifier))
+                            .where(self.TABLE.c["sourcesystem_cd"] == sourcesystem_cd)
+                        )
+                        conn.execute(statement_delete)
+                    except exc.SQLAlchemyError:
+                        transaction.rollback()
+                        traceback.print_exc()
+                        raise SystemExit("delete operation for encounter failed")
 
     def check_if_encounter_is_imported(self, num_enc: str) -> bool:
         sourcesystem = self.__get_sourcesystem_of_encounter(num_enc)
@@ -1617,14 +1600,15 @@ class ObservationFactTableHandler(TableHandler):
         FALLObservationFactConverter) of the corresponding encounter with the metadata
         of this script.
         """
-        query = (
-            db.select(self.TABLE.c["sourcesystem_cd"])
-            .where(self.TABLE.c["encounter_num"] == str(num_enc))
-            .where(self.TABLE.c["concept_cd"] == "P21:SCRIPT")
-            .where(self.TABLE.c["modifier_cd"] == "scriptId")
-            .where(self.TABLE.c["provider_id"] == "P21")
-        )
-        return self.CONNECTION.execute(query).fetchall()
+        with self.open_connection() as conn:
+            query = (
+                db.select(self.TABLE.c["sourcesystem_cd"])
+                .where(self.TABLE.c["encounter_num"] == str(num_enc))
+                .where(self.TABLE.c["concept_cd"] == "P21:SCRIPT")
+                .where(self.TABLE.c["modifier_cd"] == "scriptId")
+                .where(self.TABLE.c["provider_id"] == "P21")
+            )
+            return conn.execute(query).fetchall()
 
     @staticmethod
     def __is_sourcesystem_valid(sourcesystem: str) -> bool:
@@ -1660,25 +1644,21 @@ class CSVObservationFactUploadManager(ABC):
             raise SystemExit("invalid encounter mapping dataframe supplied")
 
     def upload_csv(self):
-        try:
-            self.TABLEHANDLER.connect()
-            self.TABLEHANDLER.reflect_table()
-            for chunk in pd.read_csv(
-                self.VERIFIER.PATH_CSV,
-                chunksize=self.VERIFIER.SIZE_CHUNKS,
-                sep=self.VERIFIER.CSV_SEPARATOR,
-                encoding=self.VERIFIER.get_csv_encoding(self.VERIFIER.PATH_CSV),
-                dtype=str,
-            ):
-                chunk = self._clear_chunk_from_invalid_data(chunk)
-                if chunk.empty:
-                    continue
-                list_observation_fact_dicts = self._convert_chunk_to_uploadable_facts(
-                    chunk
-                )
-                self.TABLEHANDLER.upload_data(list_observation_fact_dicts)
-        finally:
-            self.TABLEHANDLER.close()
+          self.TABLEHANDLER.reflect_table()
+          for chunk in pd.read_csv(
+              self.VERIFIER.PATH_CSV,
+              chunksize=self.VERIFIER.SIZE_CHUNKS,
+              sep=self.VERIFIER.CSV_SEPARATOR,
+              encoding=self.VERIFIER.get_csv_encoding(self.VERIFIER.PATH_CSV),
+              dtype=str,
+          ):
+              chunk = self._clear_chunk_from_invalid_data(chunk)
+              if chunk.empty:
+                  continue
+              list_observation_fact_dicts = self._convert_chunk_to_uploadable_facts(
+                  chunk
+              )
+              self.TABLEHANDLER.upload_data(list_observation_fact_dicts)
 
     def _clear_chunk_from_invalid_data(self, chunk: pd.Series) -> pd.Series:
         chunk = chunk[list(self.VERIFIER.DICT_COLUMN_PATTERN.keys())]
