@@ -11,8 +11,8 @@ os.environ["uuid"] = "3fc5b451-3333-1245-1134-a70bfc58fd1f"
 os.environ["script_id"] = "p21import"
 os.environ["script_version"] = "1.2"
 
-path_parent = os.path.join(os.path.dirname(os.getcwd()), "p21-script")
-path_resources = os.path.join(path_parent, "test/resources")
+path_parent = os.path.join(os.path.dirname(os.getcwd()))
+path_resources = os.path.join(path_parent, "resources")
 path_aktin_properties = os.path.join(path_resources, "aktin.properties")
 path_zip = os.path.join(path_resources, "p21_verification.zip")
 os.environ["path_aktin_properties"] = os.environ["path_aktin_properties"] = (
