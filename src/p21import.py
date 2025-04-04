@@ -229,8 +229,8 @@ class P21Importer:
         if uploader.VERIFIER.is_csv_in_folder():
           uploader.upload_csv()
         if isinstance(uploader, FALLObservationFactUploadManager):
-          num_imports = uploader.NUM_IMPORTS
-          num_updates = uploader.NUM_UPDATES
+          num_imports = uploader.num_imports
+          num_updates = uploader.num_updates
       print(f"Fälle hochgeladen: {num_imports + num_updates}")
       print(f"Neue Fälle hochgeladen: {num_imports}")
       print(f"Bestehende Fälle aktualisiert: {num_updates}")
@@ -242,17 +242,17 @@ class P21Importer:
 class ZipFileExtractor:
 
   def __init__(self, path_zip: str):
-    self.PATH_ZIP = path_zip
+    self.path_zip = path_zip
     self.__check_zip_file_integrity()
 
   def __check_zip_file_integrity(self):
-    if not os.path.exists(self.PATH_ZIP):
-      raise SystemExit("file path is not valid")
-    if not zipfile.is_zipfile(self.PATH_ZIP):
-      raise SystemExit("file is not a zipfile")
+    if not os.path.exists(self.path_zip):
+      raise SystemExit("File path is not valid")
+    if not zipfile.is_zipfile(self.path_zip):
+      raise SystemExit("File is not a zipfile")
 
   def extract_zip_to_folder(self, path_folder: str):
-    with zipfile.ZipFile(self.PATH_ZIP, "r") as file_zip:
+    with zipfile.ZipFile(self.path_zip, "r") as file_zip:
       file_zip.extractall(path_folder)
 
 
@@ -265,29 +265,29 @@ class TmpFolderManager:
   """
 
   def __init__(self, path_folder: str):
-    self.PATH_TMP = os.path.join(path_folder, "tmp")
+    self.path_tmp = os.path.join(path_folder, "tmp")
 
   def create_tmp_folder(self) -> str:
-    if not os.path.isdir(self.PATH_TMP):
-      os.makedirs(self.PATH_TMP)
-    return self.PATH_TMP
+    if not os.path.isdir(self.path_tmp):
+      os.makedirs(self.path_tmp)
+    return self.path_tmp
 
   def remove_tmp_folder(self):
-    if os.path.isdir(self.PATH_TMP):
-      shutil.rmtree(self.PATH_TMP)
+    if os.path.isdir(self.path_tmp):
+      shutil.rmtree(self.path_tmp)
 
   def rename_files_in_tmp_folder_to_lowercase(self):
     list_files = self.__get_files_in_tmp_folder()
     for file in list_files:
-      path_file = os.path.join(self.PATH_TMP, file)
-      path_file_lower = os.path.join(self.PATH_TMP, file.lower())
+      path_file = os.path.join(self.path_tmp, file)
+      path_file_lower = os.path.join(self.path_tmp, file.lower())
       os.rename(path_file, path_file_lower)
 
   def __get_files_in_tmp_folder(self) -> list:
     return [
       file
-      for file in os.listdir(self.PATH_TMP)
-      if os.path.isfile(os.path.join(self.PATH_TMP, file))
+      for file in os.listdir(self.path_tmp)
+      if os.path.isfile(os.path.join(self.path_tmp, file))
     ]
 
 
@@ -298,7 +298,7 @@ class CSVReader(ABC):
 
   SIZE_CHUNKS: int = 10000
   CSV_SEPARATOR: str = ";"
-  CSV_NAME: str
+  CSV_NAME: str = None
 
   def __init__(self, path_folder: str):
     self.PATH_CSV = os.path.join(path_folder, self.CSV_NAME)
@@ -340,7 +340,7 @@ class CSVPreprocessor(CSVReader, ABC):
         encoding=self.get_csv_encoding(self.PATH_CSV),
         dtype=str,
     )
-    df.rename(columns=str.lower, inplace=True)
+    df.rename(columns=lambda x: x.lower(), inplace=True)
     return ";".join(df.columns)
 
   @staticmethod
@@ -627,7 +627,7 @@ class FALLVerifier(CSVFileVerifier):
   def get_unique_ids_of_valid_encounter(self) -> list:
     list_valid_ids = super().get_unique_ids_of_valid_encounter()
     if not list_valid_ids:
-      raise SystemExit("no valid encounter found in fall.csv")
+      raise SystemExit("No valid encounter found in fall.csv")
     return list_valid_ids
 
   def count_total_encounter(self) -> int:
@@ -732,9 +732,9 @@ class CSVObservationFactConverter(ABC):
   """
 
   def __init__(self):
-    self.SCRIPT_ID = os.environ["script_id"]
-    self.ZIP_UUID = os.environ["uuid"]
-    self.CODE_SOURCE = "_".join([self.SCRIPT_ID, self.ZIP_UUID])
+    self.script_id = os.environ["script_id"]
+    self.zip_uuid = os.environ["uuid"]
+    self.code_source = "_".join([self.script_id, self.zip_uuid])
 
   @abstractmethod
   def create_observation_facts_from_row(self, row_csv: pd.Series) -> list:
@@ -766,7 +766,7 @@ class CSVObservationFactConverter(ABC):
     dict_row["import_date"] = date_import
     dict_row["update_date"] = date_import
     dict_row["download_date"] = date_import
-    dict_row["sourcesystem_cd"] = self.CODE_SOURCE
+    dict_row["sourcesystem_cd"] = self.code_source
     return dict_row
 
   @staticmethod
@@ -797,7 +797,7 @@ class FALLObservationFactConverter(CSVObservationFactConverter):
 
   def __init__(self):
     super().__init__()
-    self.SCRIPT_VERSION = os.environ["script_version"]
+    self.script_version = os.environ["script_version"]
 
   def create_observation_facts_from_row(self, row_csv: pd.Series) -> list:
     facts = []
@@ -1028,13 +1028,13 @@ class FALLObservationFactConverter(CSVObservationFactConverter):
         "concept_cd": "P21:SCRIPT",
         "modifier_cd": "scriptVer",
         "valtype_cd": "T",
-        "tval_char": self.SCRIPT_VERSION,
+        "tval_char": self.script_version,
       },
       {
         "concept_cd": "P21:SCRIPT",
         "modifier_cd": "scriptId",
         "valtype_cd": "T",
-        "tval_char": self.SCRIPT_ID,
+        "tval_char": self.script_id,
       },
     ]
 
@@ -1046,11 +1046,11 @@ class FABObservationFactConverter(CSVObservationFactConverter):
 
   def __init__(self):
     super().__init__()
-    self.COUNTER_INSTANCE = ObservationFactInstanceCounter()
+    self.counter_instance = ObservationFactInstanceCounter()
 
   def create_observation_facts_from_row(self, row_csv: pd.Series) -> list:
     id_case = row_csv["khinterneskennzeichen"]
-    num_instance = self.COUNTER_INSTANCE.add_row_instance_count(id_case)
+    num_instance = self.counter_instance.add_row_instance_count(id_case)
     facts = self.__create_department_dict(
         num_instance,
         row_csv["fachabteilung"],
@@ -1090,12 +1090,12 @@ class ICDObservationFactConverter(CSVObservationFactConverter):
 
   def __init__(self):
     super().__init__()
-    self.COUNTER_INSTANCE = ObservationFactInstanceCounter()
+    self.counter_instance = ObservationFactInstanceCounter()
 
   def create_observation_facts_from_row(self, row_csv: pd.Series) -> list:
     facts = []
     id_case = row_csv["khinterneskennzeichen"]
-    num_instance = self.COUNTER_INSTANCE.add_row_instance_count(id_case)
+    num_instance = self.counter_instance.add_row_instance_count(id_case)
     facts.extend(
         self.__create_icd_dicts(
             num_instance,
@@ -1107,7 +1107,7 @@ class ICDObservationFactConverter(CSVObservationFactConverter):
         )
     )
     if row_csv["sekundärkode"]:
-      num_instance = self.COUNTER_INSTANCE.add_row_instance_count(id_case)
+      num_instance = self.counter_instance.add_row_instance_count(id_case)
       facts.extend(
           self.__create_icd_sek_dicts(
               num_instance,
@@ -1227,11 +1227,11 @@ class OPSObservationFactConverter(CSVObservationFactConverter):
 
   def __init__(self):
     super().__init__()
-    self.COUNTER_INSTANCE = ObservationFactInstanceCounter()
+    self.counter_instance = ObservationFactInstanceCounter()
 
   def create_observation_facts_from_row(self, row_csv: pd.Series) -> list:
     id_case = row_csv["khinterneskennzeichen"]
-    num_instance = self.COUNTER_INSTANCE.add_row_instance_count(id_case)
+    num_instance = self.counter_instance.add_row_instance_count(id_case)
     return self.__create_ops_dicts(
         num_instance,
         row_csv["opskode"],
@@ -1302,30 +1302,30 @@ class ObservationFactInstanceCounter:
   """
 
   def __init__(self):
-    self.DICT_NUM_INSTANCES = {}
+    self.dict_num_instances = {}
 
   def add_row_instance_count(self, id_case: str) -> str:
-    if id_case not in self.DICT_NUM_INSTANCES:
-      self.DICT_NUM_INSTANCES[id_case] = 1
+    if id_case not in self.dict_num_instances:
+      self.dict_num_instances[id_case] = 1
     else:
-      self.DICT_NUM_INSTANCES[id_case] += 1
-    return self.DICT_NUM_INSTANCES.get(id_case)
+      self.dict_num_instances[id_case] += 1
+    return self.dict_num_instances.get(id_case)
 
 
 class DatabaseConnection(ABC):
   ENGINE: db.engine.Engine = None
 
   def __init__(self):
-    self.USERNAME = os.environ["username"]
-    self.PASSWORD = os.environ["password"]
-    self.I2B2_CONNECTION_URL = os.environ["connection-url"]
+    self.username = os.environ["username"]
+    self.password = os.environ["password"]
+    self.i2b2_connection_url = os.environ["connection-url"]
     self.__init_engine()
 
   def __init_engine(self):
     pattern = "jdbc:postgresql://(.*?)(\?searchPath=.*)?$"
-    connection = re.search(pattern, self.I2B2_CONNECTION_URL).group(1)
+    connection = re.search(pattern, self.i2b2_connection_url).group(1)
     self.ENGINE = db.create_engine(
-        f"postgresql+psycopg2://{self.USERNAME}:{self.PASSWORD}@{connection}",
+        f"postgresql+psycopg2://{self.username}:{self.password}@{connection}",
         pool_pre_ping=True,
     )
 
@@ -1443,10 +1443,10 @@ class DatabaseEncounterMatcher:
   """
 
   def __init__(self, extractor: DatabaseExtractor):
-    self.READER = AktinPropertiesReader()
-    algorithm = self.READER.get_property("pseudonym.algorithm")
-    self.ANONYMIZER = OneWayAnonymizer(algorithm)
-    self.EXTRACTOR = extractor
+    self.reader = AktinPropertiesReader()
+    algorithm = self.reader.get_property("pseudonym.algorithm")
+    self.anonymizer = OneWayAnonymizer(algorithm)
+    self.extractor = extractor
 
   def get_matched_df(self, list_csv_ids: list) -> pd.DataFrame:
     """
@@ -1458,8 +1458,8 @@ class DatabaseEncounterMatcher:
     """
     salt = self.__get_salt_property()
     root = self.__get_extractor_type_root()
-    df_db = self.EXTRACTOR.extract()
-    list_csv_ide = self.ANONYMIZER.anonymize_list(root, list_csv_ids, salt)
+    df_db = self.extractor.extract()
+    list_csv_ide = self.anonymizer.anonymize_list(root, list_csv_ids, salt)
     df_csv = pd.DataFrame(
         list(zip(list_csv_ids, list_csv_ide)),
         columns=["encounter_id", "match_id"]
@@ -1467,7 +1467,7 @@ class DatabaseEncounterMatcher:
     df_merged = pd.merge(df_db, df_csv, on=["match_id"])
     df_merged = df_merged.drop(["match_id"], axis=1)
     if df_merged.empty:
-      raise SystemExit("no encounter could be matched with database")
+      raise SystemExit("No encounter could be matched with database")
     return df_merged
 
   def get_matched_list(self, list_csv_ids: list) -> list:
@@ -1475,26 +1475,26 @@ class DatabaseEncounterMatcher:
     return df["encounter_id"].tolist()
 
   def __get_extractor_type_root(self) -> str:
-    if isinstance(self.EXTRACTOR, EncounterInfoExtractorWithEncounterId):
-      return self.READER.get_property("cda.encounter.root.preset")
-    elif isinstance(self.EXTRACTOR, EncounterInfoExtractorWithBillingId):
-      return self.READER.get_property("cda.billing.root.preset")
+    if isinstance(self.extractor, EncounterInfoExtractorWithEncounterId):
+      return self.reader.get_property("cda.encounter.root.preset")
+    elif isinstance(self.extractor, EncounterInfoExtractorWithBillingId):
+      return self.reader.get_property("cda.billing.root.preset")
     else:
       raise SystemExit("invalid instance of DatabaseExtractor")
 
   def __get_salt_property(self) -> str:
-    return self.READER.get_property("pseudonym.salt")
+    return self.reader.get_property("pseudonym.salt")
 
 
 class AktinPropertiesReader:
 
   def __init__(self):
-    self.PATH_AKTIN_PROPERTIES = os.environ["path_aktin_properties"]
-    if not os.path.exists(self.PATH_AKTIN_PROPERTIES):
-      raise SystemExit("file path for aktin.properties is not valid")
+    self.path_aktin_properties = os.environ["path_aktin_properties"]
+    if not os.path.exists(self.path_aktin_properties):
+      raise SystemExit("File path for aktin.properties is not valid")
 
   def get_property(self, prop: str) -> str:
-    with open(self.PATH_AKTIN_PROPERTIES) as properties:
+    with open(self.path_aktin_properties) as properties:
       for line in properties:
         if "=" in line:
           key, value = line.split("=", 1)
@@ -1575,7 +1575,7 @@ class ObservationFactTableHandler(TableHandler):
         except exc.SQLAlchemyError:
           transaction.rollback()
           traceback.print_exc()
-          raise SystemExit("upload operation failed")
+          raise SystemExit("Upload operation failed")
 
   def delete_data(self, identifier: str):
     sourcesystem = self.__get_sourcesystem_of_encounter(identifier)
@@ -1593,7 +1593,7 @@ class ObservationFactTableHandler(TableHandler):
           except exc.SQLAlchemyError:
             transaction.rollback()
             traceback.print_exc()
-            raise SystemExit("delete operation for encounter failed")
+            raise SystemExit("Delete operation for encounter failed")
 
   def check_if_encounter_is_imported(self, num_enc: str) -> bool:
     sourcesystem = self.__get_sourcesystem_of_encounter(num_enc)
@@ -1637,20 +1637,20 @@ class CSVObservationFactUploadManager(ABC):
   CONVERTER: CSVObservationFactConverter
 
   def __init__(self, matched_encounter_info: pd.DataFrame):
-    self.TABLEHANDLER: ObservationFactTableHandler = ObservationFactTableHandler()
-    self.DF_MAPPING = matched_encounter_info
-    if self.DF_MAPPING.empty:
+    self.tablehandler: ObservationFactTableHandler = ObservationFactTableHandler()
+    self.df_mapping = matched_encounter_info
+    if self.df_mapping.empty:
       raise SystemExit("given encounter mapping dataframe is empty")
     if not {
       "encounter_id",
       "encounter_num",
       "patient_num",
       "aufnahmedatum",
-    }.issubset(self.DF_MAPPING.columns):
+    }.issubset(self.df_mapping.columns):
       raise SystemExit("invalid encounter mapping dataframe supplied")
 
   def upload_csv(self):
-    self.TABLEHANDLER.reflect_table()
+    self.tablehandler.reflect_table()
     for chunk in pd.read_csv(
         self.VERIFIER.PATH_CSV,
         chunksize=self.VERIFIER.SIZE_CHUNKS,
@@ -1664,12 +1664,12 @@ class CSVObservationFactUploadManager(ABC):
       list_observation_fact_dicts = self._convert_chunk_to_uploadable_facts(
           chunk
       )
-      self.TABLEHANDLER.upload_data(list_observation_fact_dicts)
+      self.tablehandler.upload_data(list_observation_fact_dicts)
 
   def _clear_chunk_from_invalid_data(self, chunk: pd.Series) -> pd.Series:
     chunk = chunk[list(self.VERIFIER.DICT_COLUMN_PATTERN.keys())]
     chunk = chunk[
-      chunk["khinterneskennzeichen"].isin(self.DF_MAPPING["encounter_id"])
+      chunk["khinterneskennzeichen"].isin(self.df_mapping["encounter_id"])
     ]
     chunk = chunk.fillna("")
     for column in chunk.columns.values:
@@ -1691,7 +1691,7 @@ class CSVObservationFactUploadManager(ABC):
 
   def _add_static_observation_facts(self, list_facts: list,
       id_case: str) -> list:
-    row_case = self.DF_MAPPING.loc[self.DF_MAPPING["encounter_id"] == id_case]
+    row_case = self.df_mapping.loc[self.df_mapping["encounter_id"] == id_case]
     num_enc = str(row_case["encounter_num"].values[0])
     num_pat = str(row_case["patient_num"].values[0])
     date_admission = row_case["aufnahmedatum"].values[0]
@@ -1712,23 +1712,23 @@ class FALLObservationFactUploadManager(CSVObservationFactUploadManager):
     super().__init__(df_mapping)
     self.VERIFIER = FALLVerifier(path_folder)
     self.CONVERTER = FALLObservationFactConverter()
-    self.NUM_IMPORTS = 0
-    self.NUM_UPDATES = 0
+    self.num_imports = 0
+    self.num_updates = 0
 
   def _convert_chunk_to_uploadable_facts(self, chunk: pd.Series) -> list:
     list_observation_fact_dicts = []
     for row_csv in chunk.iterrows():
       row_csv = row_csv[1]
       num_enc = str(
-          self.DF_MAPPING.loc[
-            self.DF_MAPPING["encounter_id"] == row_csv["khinterneskennzeichen"]
+          self.df_mapping.loc[
+            self.df_mapping["encounter_id"] == row_csv["khinterneskennzeichen"]
             ]["encounter_num"].values[0]
       )
-      if self.TABLEHANDLER.check_if_encounter_is_imported(num_enc):
-        self.TABLEHANDLER.delete_data(num_enc)
-        self.NUM_UPDATES += 1
+      if self.tablehandler.check_if_encounter_is_imported(num_enc):
+        self.tablehandler.delete_data(num_enc)
+        self.num_updates += 1
       else:
-        self.NUM_IMPORTS += 1
+        self.num_imports += 1
       list_converted_row = self.CONVERTER.create_observation_facts_from_row(
           row_csv
       )
@@ -1765,9 +1765,7 @@ if __name__ == "__main__":
   if len(sys.argv) != 3:
     raise SystemExit("sys.argv don't match")
   p21 = P21Importer(sys.argv[2])
-  if sys.argv[1] == "verify_file":
-    p21.verify_file()
-  elif sys.argv[1] == "import_file":
+  if sys.argv[1] == "import_file":
     p21.import_file()
   else:
-    raise SystemExit("unknown method function")
+    raise SystemExit("Unknown method function")
