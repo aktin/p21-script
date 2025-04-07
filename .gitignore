@@ -136,3 +136,4 @@ profiling_stats.txt
 __pycache__
 venv
 test/resources/p21_*
+uv.lock
