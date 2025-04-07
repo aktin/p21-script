@@ -64,14 +64,14 @@ and uploads all valid data for valid encounters from fall.csv.
 class P21Importer:
 
   def __init__(self, path_zip: str):
-    self.ZFE = ZipFileExtractor(path_zip)
+    self.zfe = ZipFileExtractor(path_zip)
     path_parent = os.path.dirname(path_zip)
-    self.TFM = TmpFolderManager(path_parent)
+    self.tfm = TmpFolderManager(path_parent)
 
   def __extract_and_rename_zip_content(self) -> str:
-    path_tmp = self.TFM.create_tmp_folder()
-    self.ZFE.extract_zip_to_folder(path_tmp)
-    self.TFM.rename_files_in_tmp_folder_to_lowercase()
+    path_tmp = self.tfm.create_tmp_folder()
+    self.zfe.extract_zip_to_folder(path_tmp)
+    self.tfm.rename_files_in_tmp_folder_to_lowercase()
     return path_tmp
 
   def __preprocess_and_check_csv_files(self, path_folder: str):
@@ -173,7 +173,7 @@ class P21Importer:
       print(f"Fälle valide: {len(list_valid_ids)}")
       print(f"Valide Fälle gematcht mit Datenbank: {len(list_matched)}")
     finally:
-      self.TFM.remove_tmp_folder()
+      self.tfm.remove_tmp_folder()
 
   def import_file(self):
     """
@@ -236,7 +236,7 @@ class P21Importer:
       print(f"Bestehende Fälle aktualisiert: {num_updates}")
       raise SystemExit
     finally:
-      self.TFM.remove_tmp_folder()
+      self.tfm.remove_tmp_folder()
 
 
 class ZipFileExtractor:
