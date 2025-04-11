@@ -649,7 +649,7 @@ class CSVObservationFactConverter(ABC):
         dict_row['location_cd'] = '@'
         dict_row['import_date'] = date_import
         dict_row['update_date'] = datetime.now(tz=None).strftime('%Y-%m-%d %H:%M:%S.%f')
-        dict_row['download_date'] = date_download if date_download is not None else date_import
+        dict_row['download_date'] = date_download
         dict_row['sourcesystem_cd'] = self.CODE_SOURCE
         return dict_row
 
