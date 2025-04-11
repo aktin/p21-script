@@ -121,35 +121,27 @@ class P21Importer:
       return matcher.get_matched_df(list_valid_ids)
 
   def import_file(self):
-    """
-    Imports and processes a file, uploading data to the appropriate managers.
+    """Handles the full file import and data upload process.
 
-    This method performs the following steps:
-    1. Verifies and prepares the input data.
-    2. Matches valid IDs and retrieves admission dates.
-    3. Merges the matched data with admission dates.
-    4. Iterates through a list of uploader classes to upload the processed data.
-    5. Tracks and prints the number of new and updated cases.
+      Performs:
+      1. Data validation and temporary file preparation
+      2. Database matching of valid encounters
+      3. CSV uploads for different observation types (FALL, FAB, ICD, OPS)
+      4. Final cleanup of temporary resources
 
-    Global Variables:
-        num_imports (int): Tracks the number of new cases imported.
-        num_updates (int): Tracks the number of existing cases updated.
+      Globals:
+          Modifies num_imports (int): Count of new records imported
+          Modifies num_updates (int): Count of existing records updated
 
-    Raises:
-        SystemExit: Exits the program after successful execution.
+      Prints:
+          Validation statistics and upload results summary
 
-    Cleanup:
-        Ensures temporary folders are removed after execution.
+      Returns:
+          None
 
-    Note:
-        The method relies on several external classes and methods, such as:
-        - `__verify_and_prepare`
-        - `__get_matched`
-        - `FALLObservationFactUploadManager`
-        - `FABObservationFactUploadManager`
-        - `ICDObservationFactUploadManager`
-        - `OPSObservationFactUploadManager`
-    """
+      Raises:
+          Exception: Propagates any errors from processing steps (final cleanup always occurs)
+      """
     global num_imports, num_updates
     try:
       path_tmp, verifier_fall, list_valid_ids = self.__verify_and_prepare()
