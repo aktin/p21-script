@@ -15,15 +15,10 @@ path_parent = os.path.join(os.path.dirname(os.getcwd()))
 path_resources = os.path.join(path_parent, "resources")
 path_aktin_properties = os.path.join(path_resources, "aktin.properties")
 path_zip = os.path.join(path_resources, "p21_verification.zip")
-os.environ["path_aktin_properties"] = os.environ["path_aktin_properties"] = (
-    path_aktin_properties
-)
+os.environ["path_aktin_properties"] =  path_aktin_properties
 
 start_time = time.time()
 
 p21 = P21Importer(path_zip)
-# main()
-# p21.verify_file()
-# print("--- %s seconds ---" % (time.time() - start_time))
 p21.import_file()
 print("--- %s seconds ---" % (time.time() - start_time))
