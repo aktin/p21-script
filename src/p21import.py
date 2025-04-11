@@ -86,21 +86,14 @@ class P21Importer:
         verifier.check_column_names_of_csv()
 
   def __verify_and_prepare(self):
-    """
-    Extracts the zip file, preprocesses the CSV files, verifies the data,
+    """Extracts the zip file, preprocesses the CSV files, verifies the data,
     and returns the necessary components for further processing.
 
-    This method performs the following steps:
-    1. Extracts the contents of the zip file to a temporary folder and renames files to lowercase.
-    2. Preprocesses and validates the CSV files in the extracted folder.
-    3. Creates an instance of `FALLVerifier` to validate the `fall.csv` file.
-    4. Retrieves the list of unique IDs of valid encounters from the `fall.csv` file.
-
     Returns:
-        tuple:
-            - path_tmp (str): The path to the temporary folder containing the extracted files.
-            - verifier_fall (FALLVerifier): An instance of `FALLVerifier` for verifying `fall.csv`.
-            - list_valid_ids (list): A list of unique IDs of valid encounters extracted from `fall.csv`.
+        tuple: Contains:
+            - str: Path to temporary processed files
+            - FALLVerifier: Initialized verifier instance
+            - list: Valid encounter IDs found during verification
     """
     path_tmp = self.__extract_and_rename_zip_content()
     self.__preprocess_and_check_csv_files(path_tmp)
