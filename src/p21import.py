@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*
 # Created on Wed Jan 20 11:36:55 2021
-# @VERSION=1.5.3
+# @VERSION=1.6
 # @VIEWNAME=P21-Importskript
 # @MIMETYPE=zip
 # @ID=p21
 
 #
-#      Copyright (c) 2022  AKTIN
+#      Copyright (c) 2025  AKTIN
 #
 #      This program is free software: you can redistribute it and/or modify
 #      it under the terms of the GNU Affero General Public License as
@@ -39,99 +39,118 @@ import sqlalchemy as db
 from sqlalchemy import exc
 
 """
-Script to verify and import p21 data into AKTIN DWH. AKTIN DWH provides path to a zip-file 
-and calls either method verify_file() or import_file() of class P21Importer.
-
-verify_file() checks validity of csv files in given zip-file regarding p21 requirements and matches
-valid encounter in fall.csv with encounters in database. Matching with database is done by the 
-billing_id. If no encounter with a billing_id is found, matching is done using the encounter_id.
-Prints matching results in console.
-
-import_file() repeats the first steps for verification and matching done by verify_file(). Then it 
-iterates through matched encounters in fall.csv. All valid fields of valid encounters are uploaded 
-into the i2b2 database as observation facts. Prior uploading each encounter, a check is performed if
-this  encounter was already uploaded using this script and deleted prior upload. After uploading each 
-valid encounter from fall.csv, the script iterate through the optional csv-files (fab,icd,ops)
-and uploads all valid data for valid encounters from fall.csv.
+Script to verify and import p21 data into the AKTIN DWH:
+- checks validity of csv files in given zip-file regarding p21 requirements
+- matches valid encounter in fall.csv with encounters in database
+- matching is done by the billing_id, and the encounter_id as a fallback
+- iterates through matched encounters in fall.csv
+- all valid fields of valid encounters are uploaded into the i2b2 database as observation facts
+- already uploaded encounter by this script are deleted prior upload
+- after uploading each valid encounter from fall.csv, the script iterates 
+through the optional csv-files (fab,icd,ops) and uploads their facts too
 """
-
 
 # TODO keep download_date/import_date when updating encounter
 # TODO duplicate print of nonexisting files on import
 
 class P21Importer:
 
-    def __init__(self, path_zip: str):
-        self.ZFE = ZipFileExtractor(path_zip)
-        path_parent = os.path.dirname(path_zip)
-        self.TFM = TmpFolderManager(path_parent)
+  def __init__(self, path_zip: str):
+    self.__zfe = ZipFileExtractor(path_zip)
+    path_parent = os.path.dirname(path_zip)
+    self.__tfm = TmpFolderManager(path_parent)
+    self.__num_imports = 0
+    self.__num_updates = 0
 
-    def __extract_and_rename_zip_content(self) -> str:
-        path_tmp = self.TFM.create_tmp_folder()
-        self.ZFE.extract_zip_to_folder(path_tmp)
-        self.TFM.rename_files_in_tmp_folder_to_lowercase()
-        return path_tmp
+  def __extract_and_rename_zip_content(self) -> str:
+    path_tmp = self.__tfm.create_tmp_folder()
+    self.__zfe.extract_zip_to_folder(path_tmp)
+    self.__tfm.rename_files_in_tmp_folder_to_lowercase()
+    return path_tmp
 
-    def __preprocess_and_check_csv_files(self, path_folder: str):
-        for v, p in [(FALLVerifier, FALLPreprocessor), (FABVerifier, FABPreprocessor), (ICDVerifier, ICDPreprocessor), (OPSVerifier, OPSPreprocessor)]:
-            verifier = v(path_folder)
-            preprocessor = p(path_folder)
-            if verifier.is_csv_in_folder():
-                preprocessor.preprocess()
-                verifier.check_column_names_of_csv()
+  def __preprocess_and_check_csv_files(self, path_folder: str):
+    for v, p in [
+      (FALLVerifier, FALLPreprocessor),
+      (FABVerifier, FABPreprocessor),
+      (ICDVerifier, ICDPreprocessor),
+      (OPSVerifier, OPSPreprocessor),
+    ]:
+      verifier = v(path_folder)
+      preprocessor = p(path_folder)
+      if verifier.is_csv_in_folder():
+        preprocessor.preprocess()
+        verifier.check_column_names_of_csv()
 
-    def verify_file(self):
-        try:
-            path_tmp = self.__extract_and_rename_zip_content()
-            self.__preprocess_and_check_csv_files(path_tmp)
-            verifier_fall = FALLVerifier(path_tmp)
-            list_valid_ids = verifier_fall.get_unique_ids_of_valid_encounter()
-            try:
-                extractor = EncounterInfoExtractorWithBillingId()
-                matcher = DatabaseEncounterMatcher(extractor)
-                list_matched = matcher.get_matched_list(list_valid_ids)
-            except ValueError:
-                print('matching by billing id failed. trying matching by encounter id...')
-                extractor = EncounterInfoExtractorWithEncounterId()
-                matcher = DatabaseEncounterMatcher(extractor)
-                list_matched = matcher.get_matched_list(list_valid_ids)
-            print('Fälle gesamt: %d' % FALLVerifier(path_tmp).count_total_encounter())
-            print('Fälle valide: %d' % len(list_valid_ids))
-            print('Valide Fälle gematcht mit Datenbank: %d' % len(list_matched))
-        finally:
-            self.TFM.remove_tmp_folder()
+  def __get_matched_encounters(self, list_valid_ids: list) -> pd.DataFrame:
+    try:
+      extractor = EncounterInfoExtractorWithBillingId()
+      matcher = DatabaseEncounterMatcher(extractor)
+      return matcher.get_matched_df(list_valid_ids)
+    except ValueError:
+      print("Matching by billing id failed. trying matching by encounter id...")
+      extractor = EncounterInfoExtractorWithEncounterId()
+      matcher = DatabaseEncounterMatcher(extractor)
+      return matcher.get_matched_df(list_valid_ids)
 
-    def import_file(self):
-        global num_imports, num_updates
-        try:
-            path_tmp = self.__extract_and_rename_zip_content()
-            self.__preprocess_and_check_csv_files(path_tmp)
-            verifier_fall = FALLVerifier(path_tmp)
-            list_valid_ids = verifier_fall.get_unique_ids_of_valid_encounter()
-            try:
-                extractor = EncounterInfoExtractorWithBillingId()
-                matcher = DatabaseEncounterMatcher(extractor)
-                df_mapping = matcher.get_matched_df(list_valid_ids)
-            except ValueError:
-                print('matching by billing id failed. trying matching by encounter id...')
-                extractor = EncounterInfoExtractorWithEncounterId()
-                matcher = DatabaseEncounterMatcher(extractor)
-                df_mapping = matcher.get_matched_df(list_valid_ids)
-            dict_admission_dates = verifier_fall.get_unique_ids_of_valid_encounter_with_admission_dates()
-            df_admission_dates = pd.DataFrame({'encounter_id': list(dict_admission_dates.keys()), 'aufnahmedatum': list(dict_admission_dates.values())})
-            df_mapping = pd.merge(df_mapping, df_admission_dates, on=['encounter_id'])
-            for u in [FALLObservationFactUploadManager, FABObservationFactUploadManager, ICDObservationFactUploadManager, OPSObservationFactUploadManager]:
-                uploader = u(df_mapping, path_tmp)
-                if uploader.VERIFIER.is_csv_in_folder():
-                    uploader.upload_csv()
-                if isinstance(uploader, FALLObservationFactUploadManager):
-                    num_imports = uploader.NUM_IMPORTS
-                    num_updates = uploader.NUM_UPDATES
-            print('Fälle hochgeladen: %d' % (num_imports + num_updates))
-            print('Neue Fälle hochgeladen: %d' % num_imports)
-            print('Bestehende Fälle aktualisiert: %d' % num_updates)
-        finally:
-            self.TFM.remove_tmp_folder()
+  def __enrich_with_admission_dates(self, verifier_fall, df_mapping: pd.DataFrame) -> pd.DataFrame:
+    dict_admission_dates = verifier_fall.get_unique_ids_of_valid_encounter_with_admission_dates()
+    df_admission_dates = pd.DataFrame({
+      "encounter_id": list(dict_admission_dates.keys()),
+      "aufnahmedatum": list(dict_admission_dates.values()),
+    })
+    return pd.merge(df_mapping, df_admission_dates, on=["encounter_id"])
+
+  def __print_verification_stats(self, verifier_fall, list_valid_ids: list, df_mapping: pd.DataFrame):
+    print(f"Fälle gesamt: {verifier_fall.count_total_encounter()}")
+    print(f"Fälle valide: {len(list_valid_ids)}")
+    print(f"Valide Fälle gematcht mit Datenbank: {df_mapping.shape[0]}")
+
+  def __import_observation_facts(self, df_mapping: pd.DataFrame, path_tmp:str):
+    for uploader_class in [
+      FALLObservationFactUploadManager,
+      FABObservationFactUploadManager,
+      ICDObservationFactUploadManager,
+      OPSObservationFactUploadManager,
+    ]:
+      uploader = uploader_class(df_mapping, path_tmp)
+      if uploader.VERIFIER.is_csv_in_folder():
+        uploader.upload_csv()
+      # Store metrics for unique encounters
+      if isinstance(uploader, FALLObservationFactUploadManager):
+        self.__num_imports = uploader.NUM_IMPORTS
+        self.__num_updates = uploader.NUM_UPDATES
+
+  def __print_import_results(self):
+    print(f"Fälle hochgeladen: {self.__num_imports + self.__num_updates}")
+    print(f"Neue Fälle hochgeladen: {self.__num_imports}")
+    print(f"Bestehende Fälle aktualisiert: {self.__num_updates}")
+
+  def import_file(self):
+    """Handles the full file import and data upload process.
+
+      Performs:
+      1. Data validation and temporary file preparation
+      2. Database matching of valid encounters
+      3. CSV uploads for different observation types (FALL, FAB, ICD, OPS)
+      4. Final cleanup of temporary resources
+
+      Prints:
+          Validation statistics and upload results summary
+      Raises:
+          Exception: Propagates any errors from processing steps (final cleanup always occurs)
+      """
+    try:
+      path_tmp = self.__extract_and_rename_zip_content()
+      self.__preprocess_and_check_csv_files(path_tmp)
+      verifier_fall = FALLVerifier(path_tmp)
+      list_valid_ids = verifier_fall.get_unique_ids_of_valid_encounter()
+      df_mapping = self.__get_matched_encounters(list_valid_ids)
+      df_mapping = self.__enrich_with_admission_dates(verifier_fall, df_mapping)
+      self.__print_verification_stats(verifier_fall, list_valid_ids, df_mapping)
+      self.__import_observation_facts(df_mapping, path_tmp)
+      self.__print_import_results()
+    finally:
+      self.__tfm.remove_tmp_folder()
 
 
 class ZipFileExtractor:
@@ -809,24 +828,24 @@ class ObservationFactInstanceCounter:
 
 class DatabaseConnection(ABC):
     ENGINE: db.engine.Engine = None
-    CONNECTION: db.engine.Connection = None
 
     def __init__(self):
         self.USERNAME = os.environ['username']
         self.PASSWORD = os.environ['password']
         self.I2B2_CONNECTION_URL = os.environ['connection-url']
+        self.__init_engine()
 
-    def connect(self):
+    def __init_engine(self):
         pattern = r'jdbc:postgresql://(.*?)(\?searchPath=.*)?$'
         connection = re.search(pattern, self.I2B2_CONNECTION_URL).group(1)
-        self.ENGINE = db.create_engine('postgresql+psycopg2://{0}:{1}@{2}'.format(self.USERNAME, self.PASSWORD, connection))
-        self.CONNECTION = self.ENGINE.connect()
+        self.ENGINE = db.create_engine(f"postgresql+psycopg2://{self.USERNAME}:{self.PASSWORD}@{connection}", pool_pre_ping=True)
 
-    def close(self):
-        if self.CONNECTION:
-            self.CONNECTION.close()
-        if self.ENGINE:
-            self.ENGINE.dispose()
+    def open_connection(self):
+      return self.ENGINE.connect()
+
+    def __del__(self):
+      if self.ENGINE is not None:
+        self.ENGINE.dispose()
 
 
 class DatabaseExtractor(DatabaseConnection, ABC):
@@ -838,19 +857,20 @@ class DatabaseExtractor(DatabaseConnection, ABC):
 
     def _stream_query_into_df(self, query: db.sql.expression) -> pd.DataFrame:
         df = pd.DataFrame()
-        result = self.CONNECTION.execution_options(stream_results=True).execute(query)
-        while True:
+        with self.open_connection() as conn:
+          result = conn.execution_options(stream_results=True).execute(query)
+          while True:
             chunk = result.fetchmany(self.SIZE_CHUNKS)
             if not chunk:
-                break
+              break
             if df.empty:
-                df = pd.DataFrame(chunk)
+              df = pd.DataFrame(chunk)
             else:
-                df = df.append(chunk, ignore_index=True)
-        if df.empty:
-            raise ValueError('no entries for database query found')
-        df.columns = result.keys()
-        return df
+              df = df.append(chunk, ignore_index=True)
+          if df.empty:
+            raise ValueError("No entries for database query was found")
+          df.columns = result.keys()
+          return df
 
 
 class EncounterInfoExtractorWithEncounterId(DatabaseExtractor):
@@ -861,26 +881,29 @@ class EncounterInfoExtractorWithEncounterId(DatabaseExtractor):
     """
 
     def extract(self) -> pd.DataFrame:
-        try:
-            self.connect()
-            enc = db.Table('encounter_mapping', db.MetaData(), autoload_with=self.ENGINE)
-            pat = db.Table('patient_mapping', db.MetaData(), autoload_with=self.ENGINE)
-            opt = db.Table('optinout_patients', db.MetaData(), autoload_with=self.ENGINE)
-            query = db.select(
-                enc.c.encounter_ide,
-                enc.c.encounter_num,
-                pat.c.patient_num
-            ).select_from(
-                enc.join(pat, enc.c.patient_ide == pat.c.patient_ide)
-                .join(opt, pat.c.patient_ide == opt.c.pat_psn, isouter=True)
-            ).where(
-                db.or_(opt.c.study_id != 'AKTIN', opt.c.pat_psn.is_(None))
-            )
-            df = self._stream_query_into_df(query)
-            df.rename(columns={'encounter_ide': 'match_id'}, inplace=True)
-            return df
-        finally:
-            self.close()
+          enc = db.Table(
+              "encounter_mapping", db.MetaData(), autoload_with=self.ENGINE
+          )
+          pat = db.Table("patient_mapping", db.MetaData(), autoload_with=self.ENGINE)
+          opt = db.Table(
+              "optinout_patients", db.MetaData(), autoload_with=self.ENGINE
+          )
+          query = (
+              db.select(
+                  enc.c["encounter_ide"],
+                  enc.c["encounter_num"],
+                  pat.c["patient_num"],
+              )
+              .select_from(
+                  enc.join(pat, enc.c["patient_ide"] == pat.c["patient_ide"]).join(
+                      opt, pat.c["patient_ide"] == opt.c["pat_psn"], isouter=True
+                  )
+              )
+              .where(db.or_(opt.c["study_id"] != "AKTIN", opt.c["pat_psn"].is_(None)))
+          )
+          df = self._stream_query_into_df(query)
+          df.rename(columns={"encounter_ide": "match_id"}, inplace=True)
+          return df
 
 
 class EncounterInfoExtractorWithBillingId(DatabaseExtractor):
@@ -891,29 +914,36 @@ class EncounterInfoExtractorWithBillingId(DatabaseExtractor):
     """
 
     def extract(self) -> pd.DataFrame:
-        try:
-            self.connect()
-            fact = db.Table('observation_fact', db.MetaData(), autoload_with=self.ENGINE)
-            pat = db.Table('patient_mapping', db.MetaData(), autoload_with=self.ENGINE)
-            opt = db.Table('optinout_patients', db.MetaData(), autoload_with=self.ENGINE)
-            query = db.select(
-                fact.c.tval_char,
-                fact.c.encounter_num,
-                fact.c.patient_num
-            ).select_from(
-                fact.join(pat, fact.c.patient_num == pat.c.patient_num)
-                .join(opt, pat.c.patient_ide == opt.c.pat_psn, isouter=True)
-            ).where(
-                db.and_(
-                    db.or_(opt.c.study_id != 'AKTIN', opt.c.pat_psn.is_(None)),
-                    fact.c.concept_cd == 'AKTIN:Fallkennzeichen'
-                )
-            )
-            df = self._stream_query_into_df(query)
-            df.rename(columns={'tval_char': 'match_id'}, inplace=True)
-            return df
-        finally:
-            self.close()
+          fact = db.Table(
+              "observation_fact", db.MetaData(), autoload_with=self.ENGINE
+          )
+          pat = db.Table("patient_mapping", db.MetaData(), autoload_with=self.ENGINE)
+          opt = db.Table(
+              "optinout_patients", db.MetaData(), autoload_with=self.ENGINE
+          )
+          query = (
+              db.select(
+                  fact.c["tval_char"],
+                  fact.c["encounter_num"],
+                  fact.c["patient_num"],
+              )
+              .select_from(
+                  fact.join(pat, fact.c["patient_num"] == pat.c["patient_num"]).join(
+                      opt, pat.c["patient_ide"] == opt.c["pat_psn"], isouter=True
+                  )
+              )
+              .where(
+                  db.and_(
+                      db.or_(
+                          opt.c["study_id"] != "AKTIN", opt.c["pat_psn"].is_(None)
+                      ),
+                      fact.c["concept_cd"] == "AKTIN:Fallkennzeichen",
+                  )
+              )
+          )
+          df = self._stream_query_into_df(query)
+          df.rename(columns={"tval_char": "match_id"}, inplace=True)
+          return df
 
 
 class DatabaseEncounterMatcher:
@@ -947,10 +977,6 @@ class DatabaseEncounterMatcher:
         if df_merged.empty:
             raise SystemExit('no encounter could be matched with database')
         return df_merged
-
-    def get_matched_list(self, list_csv_ids: list) -> list:
-        df = self.get_matched_df(list_csv_ids)
-        return df['encounter_id'].tolist()
 
     def __get_extractor_type_root(self) -> str:
         if isinstance(self.EXTRACTOR, EncounterInfoExtractorWithEncounterId):
@@ -1038,41 +1064,32 @@ class ObservationFactTableHandler(TableHandler):
         self.TABLE = db.Table('observation_fact', db.MetaData(), autoload_with=self.ENGINE)
 
     def upload_data(self, list_dicts: list):
-        """
-        Uploads observation_fact rows. Each dict corresponds to one row in the database
-        and must contain Key-Value-Pairs for each column in table.
-        """
-        transaction = self.CONNECTION.begin()
-        try:
-            self.CONNECTION.execute(db.insert(self.TABLE), list_dicts)
-            transaction.commit()
-        except exc.SQLAlchemyError:
-            transaction.rollback()
-            traceback.print_exc()
-            raise SystemExit('upload operation failed')
+        with self.open_connection() as conn:
+            with conn.begin() as transaction:
+                try:
+                    conn.execute(self.TABLE.insert(), list_dicts)
+                except exc.SQLAlchemyError:
+                    transaction.rollback()
+                    traceback.print_exc()
+                    raise SystemExit("Upload operation failed")
 
     def delete_data(self, identifier: str):
-        """
-        Deletes all p21 data of given encounter. Data to delete is identified by the
-        given encounter_num and its corresponding sourcesystem_cd (id of this script + uuid of the zip file)
-        """
-        sourcesystem = self.__get_sourcesystem_of_encounter(identifier)
-        if self.__is_sourcesystem_valid(sourcesystem):
-            sourcesystem_cd = sourcesystem[0][0]
-            transaction = self.CONNECTION.begin()
+      sourcesystem = self.__get_sourcesystem_of_encounter(identifier)
+      if self.__is_sourcesystem_valid(sourcesystem):
+        sourcesystem_cd = sourcesystem[0][0]
+        with self.open_connection() as conn:
+          with conn.begin() as transaction:
             try:
-                statement_delete = db.delete(self.TABLE).where(
-                    db.and_(
-                        self.TABLE.c.encounter_num == str(identifier),
-                        self.TABLE.c.sourcesystem_cd == sourcesystem_cd
-                    )
-                )
-                self.CONNECTION.execute(statement_delete)
-                transaction.commit()
+              statement_delete = (
+                self.TABLE.delete()
+                .where(self.TABLE.c["encounter_num"] == str(identifier))
+                .where(self.TABLE.c["sourcesystem_cd"] == sourcesystem_cd)
+              )
+              conn.execute(statement_delete)
             except exc.SQLAlchemyError:
-                transaction.rollback()
-                traceback.print_exc()
-                raise SystemExit('delete operation for encounter failed')
+              transaction.rollback()
+              traceback.print_exc()
+              raise SystemExit("delete operation for encounter failed")
 
     def check_if_encounter_is_imported(self, num_enc: str) -> bool:
         sourcesystem = self.__get_sourcesystem_of_encounter(num_enc)
@@ -1085,15 +1102,15 @@ class ObservationFactTableHandler(TableHandler):
         FALLObservationFactConverter) of the corresponding encounter with the metadata
         of this script.
         """
-        query = db.select(self.TABLE.c.sourcesystem_cd).where(
-            db.and_(
-                self.TABLE.c.encounter_num == str(num_enc),
-                self.TABLE.c.concept_cd == 'P21:SCRIPT',
-                self.TABLE.c.modifier_cd == 'scriptId',
-                self.TABLE.c.provider_id == 'P21'
-            )
-        )
-        return self.CONNECTION.execute(query).fetchall()
+        with self.open_connection() as conn:
+          query = (
+            db.select(self.TABLE.c["sourcesystem_cd"])
+            .where(self.TABLE.c["encounter_num"] == str(num_enc))
+            .where(self.TABLE.c["concept_cd"] == "P21:SCRIPT")
+            .where(self.TABLE.c["modifier_cd"] == "scriptId")
+            .where(self.TABLE.c["provider_id"] == "P21")
+          )
+          return conn.execute(query).fetchall()
 
     @staticmethod
     def __is_sourcesystem_valid(sourcesystem: str) -> bool:
@@ -1123,17 +1140,21 @@ class CSVObservationFactUploadManager(ABC):
             raise SystemExit('invalid encounter mapping dataframe supplied')
 
     def upload_csv(self):
-        try:
-            self.TABLEHANDLER.connect()
-            self.TABLEHANDLER.reflect_table()
-            for chunk in pd.read_csv(self.VERIFIER.PATH_CSV, chunksize=self.VERIFIER.SIZE_CHUNKS, sep=self.VERIFIER.CSV_SEPARATOR, encoding=self.VERIFIER.get_csv_encoding(), dtype=str):
-                chunk = self._clear_chunk_from_invalid_data(chunk)
-                if chunk.empty:
-                    continue
-                list_observation_fact_dicts = self._convert_chunk_to_uploadable_facts(chunk)
-                self.TABLEHANDLER.upload_data(list_observation_fact_dicts)
-        finally:
-            self.TABLEHANDLER.close()
+      self.TABLEHANDLER.reflect_table()
+      for chunk in pd.read_csv(
+          self.VERIFIER.PATH_CSV,
+          chunksize=self.VERIFIER.SIZE_CHUNKS,
+          sep=self.VERIFIER.CSV_SEPARATOR,
+          encoding=self.VERIFIER.get_csv_encoding(),
+          dtype=str,
+      ):
+        chunk = self._clear_chunk_from_invalid_data(chunk)
+        if chunk.empty:
+          continue
+        list_observation_fact_dicts = self._convert_chunk_to_uploadable_facts(
+            chunk
+        )
+        self.TABLEHANDLER.upload_data(list_observation_fact_dicts)
 
     def _clear_chunk_from_invalid_data(self, chunk: pd.Series) -> pd.Series:
         chunk = chunk[list(self.VERIFIER.DICT_COLUMN_PATTERN.keys())]
@@ -1214,12 +1235,7 @@ class OPSObservationFactUploadManager(CSVObservationFactUploadManager):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        raise SystemExit('sys.argv don\'t match')
-    p21 = P21Importer(sys.argv[2])
-    if sys.argv[1] == 'verify_file':
-        p21.verify_file()
-    elif sys.argv[1] == 'import_file':
-        p21.import_file()
-    else:
-        raise SystemExit('unknown method function')
+    if len(sys.argv) != 2:
+        raise SystemExit('Sys.argv don\'t match')
+    p21 = P21Importer(sys.argv[1])
+    p21.import_file()
