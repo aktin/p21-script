@@ -56,6 +56,7 @@ and uploads all valid data for valid encounters from fall.csv.
 """
 
 
+# TODO keep download_date/import_date when updating encounter
 # TODO duplicate print of nonexisting files on import
 
 class P21Importer:
@@ -619,15 +620,8 @@ class CSVObservationFactConverter(ABC):
     def create_observation_facts_from_row(self, row_csv: pd.Series) -> list:
         pass
 
-    def add_static_values_to_row_dict(self,
-        dict_row: dict,
-        num_enc: str,
-        num_pat: str,
-        date_admission: str,
-        date_import: datetime=None,
-        date_download: datetime=None
-    ) -> dict:
-        date_import = datetime.now(tz=None).strftime('%Y-%m-%d %H:%M:%S.%f') if date_import is None else date_import
+    def add_static_values_to_row_dict(self, dict_row: dict, num_enc: str, num_pat: str, date_admission: str) -> dict:
+        date_import = datetime.now(tz=None).strftime('%Y-%m-%d %H:%M:%S.%f')
         date_admission = self._convert_date_to_i2b2_format(date_admission)
         dict_row['encounter_num'] = num_enc
         dict_row['patient_num'] = num_pat
@@ -648,8 +642,8 @@ class CSVObservationFactConverter(ABC):
             dict_row['end_date'] = None
         dict_row['location_cd'] = '@'
         dict_row['import_date'] = date_import
-        dict_row['update_date'] = datetime.now(tz=None).strftime('%Y-%m-%d %H:%M:%S.%f')
-        dict_row['download_date'] = date_download
+        dict_row['update_date'] = date_import
+        dict_row['download_date'] = date_import
         dict_row['sourcesystem_cd'] = self.CODE_SOURCE
         return dict_row
 
@@ -1188,16 +1182,6 @@ class ObservationFactTableHandler(TableHandler):
         sourcesystem = self.__get_sourcesystem_of_encounter(num_enc)
         return self.__is_sourcesystem_valid(sourcesystem)
 
-    def get_import_and_download_date_of_encounter(self, num_enc):
-      with self.open_connection() as conn:
-        query = (
-          db.select(self.TABLE.c["download_date", "import_date"])
-          .where(
-              self.TABLE.c["encounter_num"] == str(num_enc))
-        )
-        download_date, import_date = conn.execute(query).fetchone()
-        return download_date, import_date
-
     def __get_sourcesystem_of_encounter(self, num_enc: str) -> str:
         """
         Checks, if an enconter was already uploaded using this script (including older versions).
@@ -1276,18 +1260,13 @@ class CSVObservationFactUploadManager(ABC):
             list_observation_fact_dicts.extend(list_converted_row)
         return list_observation_fact_dicts
 
-    def _add_static_observation_facts(self,
-        list_facts: list,
-        id_case: str,
-        date_import: datetime=None,
-        date_download: datetime=None,
-    ) -> list:
+    def _add_static_observation_facts(self, list_facts: list, id_case: str) -> list:
         row_case = self.DF_MAPPING.loc[self.DF_MAPPING['encounter_id'] == id_case]
         num_enc = str(row_case['encounter_num'].values[0])
         num_pat = str(row_case['patient_num'].values[0])
         date_admission = row_case['aufnahmedatum'].values[0]
         for index, row in enumerate(list_facts):
-            list_facts[index] = self.CONVERTER.add_static_values_to_row_dict(row, num_enc, num_pat, date_admission, date_import, date_download)
+            list_facts[index] = self.CONVERTER.add_static_values_to_row_dict(row, num_enc, num_pat, date_admission)
         return list_facts
 
 
@@ -1308,17 +1287,15 @@ class FALLObservationFactUploadManager(CSVObservationFactUploadManager):
         list_observation_fact_dicts = []
         for row_csv in chunk.iterrows():
             row_csv = row_csv[1]
-            download_date, import_date = None, None
             num_enc = str(self.DF_MAPPING.loc[self.DF_MAPPING['encounter_id'] == row_csv['khinterneskennzeichen']]['encounter_num'].values[0])
             if self.TABLEHANDLER.check_if_encounter_is_imported(num_enc):
-                download_date, import_date =  self.TABLEHANDLER.get_import_and_download_date_of_encounter(num_enc)
                 self.TABLEHANDLER.delete_data(num_enc)
                 self.NUM_UPDATES += 1
             else:
                 self.NUM_IMPORTS += 1
             list_converted_row = self.CONVERTER.create_observation_facts_from_row(row_csv)
             list_converted_row.extend(self.CONVERTER.create_script_rows())
-            list_converted_row = self._add_static_observation_facts(list_converted_row, row_csv['khinterneskennzeichen'], import_date, download_date)
+            list_converted_row = self._add_static_observation_facts(list_converted_row, row_csv['khinterneskennzeichen'])
             list_observation_fact_dicts.extend(list_converted_row)
         return list_observation_fact_dicts
 
