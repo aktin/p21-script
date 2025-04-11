@@ -108,44 +108,24 @@ class P21Importer:
     list_valid_ids = verifier_fall.get_unique_ids_of_valid_encounter()
     return path_tmp, verifier_fall, list_valid_ids
 
-  def __get_matched(self, list_valid_ids, as_df=False):
-    """
-    Matches a list of valid encounter IDs with database records using billing IDs first,
-    and falls back to encounter IDs if billing ID matching fails.
-
-    This method attempts to match the provided encounter IDs with database records.
-    If `as_df` is True, it returns a DataFrame containing the matched records.
-    Otherwise, it returns a list of matched encounter IDs.
-
-    Args:
-        list_valid_ids (list): A list of valid encounter IDs extracted from the CSV file.
-        as_df (bool, optional): If True, returns a DataFrame of matched records.
-                                If False, returns a list of matched encounter IDs. Defaults to False.
-
-    Returns:
-        list or pd.DataFrame: A list of matched encounter IDs or a DataFrame of matched records,
-                            depending on the value of `as_df`.
-
-    Raises:
-        ValueError: If no matches are found using either billing IDs or encounter IDs.
-    """
+  def __get_matched(self, list_valid_ids):
+    """Matches encounters using billing IDs, falls back to encounter IDs if failed.
+     Args:
+         list_valid_ids (list): Valid IDs to match against
+     Returns:
+         pd.DataFrame: Matched encounters dataframe
+     Raises:
+         ValueError: If both matching methods fail
+     """
     try:
       extractor = EncounterInfoExtractorWithBillingId()
       matcher = DatabaseEncounterMatcher(extractor)
-      return (
-        matcher.get_matched_df(list_valid_ids)
-        if as_df
-        else matcher.get_matched_list(list_valid_ids)
-      )
+      return matcher.get_matched_df(list_valid_ids)
     except ValueError:
       print("Matching by billing id failed. trying matching by encounter id...")
       extractor = EncounterInfoExtractorWithEncounterId()
       matcher = DatabaseEncounterMatcher(extractor)
-      return (
-        matcher.get_matched_df(list_valid_ids)
-        if as_df
-        else matcher.get_matched_list(list_valid_ids)
-      )
+      return matcher.get_matched_df(list_valid_ids)
 
   def import_file(self):
     """
@@ -180,7 +160,7 @@ class P21Importer:
     global num_imports, num_updates
     try:
       path_tmp, verifier_fall, list_valid_ids = self.__verify_and_prepare()
-      df_mapping = self.__get_matched(list_valid_ids, as_df=True)
+      df_mapping = self.__get_matched(list_valid_ids)
       dict_admission_dates = (
         verifier_fall.get_unique_ids_of_valid_encounter_with_admission_dates()
       )
@@ -1037,10 +1017,6 @@ class DatabaseEncounterMatcher:
         if df_merged.empty:
             raise SystemExit('no encounter could be matched with database')
         return df_merged
-
-    def get_matched_list(self, list_csv_ids: list) -> list:
-        df = self.get_matched_df(list_csv_ids)
-        return df['encounter_id'].tolist()
 
     def __get_extractor_type_root(self) -> str:
         if isinstance(self.EXTRACTOR, EncounterInfoExtractorWithEncounterId):
