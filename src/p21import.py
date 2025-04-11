@@ -147,16 +147,6 @@ class P21Importer:
         else matcher.get_matched_list(list_valid_ids)
       )
 
-  def verify_file(self):
-    try:
-      _, verifier_fall, list_valid_ids = self.__verify_and_prepare()
-      list_matched = self.__get_matched(list_valid_ids, as_df=False)
-      print(f"Fälle gesamt: {verifier_fall.count_total_encounter()}")
-      print(f"Fälle valide: {len(list_valid_ids)}")
-      print(f"Valide Fälle gematcht mit Datenbank: {len(list_matched)}")
-    finally:
-      self.tfm.remove_tmp_folder()
-
   def import_file(self):
     """
     Imports and processes a file, uploading data to the appropriate managers.
