@@ -39,22 +39,16 @@ import sqlalchemy as db
 from sqlalchemy import exc
 
 """
-Script to verify and import p21 data into AKTIN DWH. AKTIN DWH provides path to a zip-file 
-and calls either method verify_file() or import_file() of class P21Importer.
-
-verify_file() checks validity of csv files in given zip-file regarding p21 requirements and matches
-valid encounter in fall.csv with encounters in database. Matching with database is done by the 
-billing_id. If no encounter with a billing_id is found, matching is done using the encounter_id.
-Prints matching results in console.
-
-import_file() repeats the first steps for verification and matching done by verify_file(). Then it 
-iterates through matched encounters in fall.csv. All valid fields of valid encounters are uploaded 
-into the i2b2 database as observation facts. Prior uploading each encounter, a check is performed if
-this  encounter was already uploaded using this script and deleted prior upload. After uploading each 
-valid encounter from fall.csv, the script iterate through the optional csv-files (fab,icd,ops)
-and uploads all valid data for valid encounters from fall.csv.
+Script to verify and import p21 data into the AKTIN DWH:
+- checks validity of csv files in given zip-file regarding p21 requirements
+- matches valid encounter in fall.csv with encounters in database
+- matching is done by the billing_id, and the encounter_id as a fallback
+- iterates through matched encounters in fall.csv
+- all valid fields of valid encounters are uploaded into the i2b2 database as observation facts
+- already uploaded encounter by this script are deleted prior upload
+- after uploading each valid encounter from fall.csv, the script iterates 
+through the optional csv-files (fab,icd,ops) and uploads their facts too
 """
-
 
 # TODO keep download_date/import_date when updating encounter
 # TODO duplicate print of nonexisting files on import
@@ -62,14 +56,16 @@ and uploads all valid data for valid encounters from fall.csv.
 class P21Importer:
 
   def __init__(self, path_zip: str):
-    self.zfe = ZipFileExtractor(path_zip)
+    self.__zfe = ZipFileExtractor(path_zip)
     path_parent = os.path.dirname(path_zip)
-    self.tfm = TmpFolderManager(path_parent)
+    self.__tfm = TmpFolderManager(path_parent)
+    self.__num_imports = 0
+    self.__num_updates = 0
 
   def __extract_and_rename_zip_content(self) -> str:
-    path_tmp = self.tfm.create_tmp_folder()
-    self.zfe.extract_zip_to_folder(path_tmp)
-    self.tfm.rename_files_in_tmp_folder_to_lowercase()
+    path_tmp = self.__tfm.create_tmp_folder()
+    self.__zfe.extract_zip_to_folder(path_tmp)
+    self.__tfm.rename_files_in_tmp_folder_to_lowercase()
     return path_tmp
 
   def __preprocess_and_check_csv_files(self, path_folder: str):
@@ -85,31 +81,7 @@ class P21Importer:
         preprocessor.preprocess()
         verifier.check_column_names_of_csv()
 
-  def __verify_and_prepare(self):
-    """Extracts the zip file, preprocesses the CSV files, verifies the data,
-    and returns the necessary components for further processing.
-
-    Returns:
-        tuple: Contains:
-            - str: Path to temporary processed files
-            - FALLVerifier: Initialized verifier instance
-            - list: Valid encounter IDs found during verification
-    """
-    path_tmp = self.__extract_and_rename_zip_content()
-    self.__preprocess_and_check_csv_files(path_tmp)
-    verifier_fall = FALLVerifier(path_tmp)
-    list_valid_ids = verifier_fall.get_unique_ids_of_valid_encounter()
-    return path_tmp, verifier_fall, list_valid_ids
-
-  def __get_matched(self, list_valid_ids):
-    """Matches encounters using billing IDs, falls back to encounter IDs if failed.
-     Args:
-         list_valid_ids (list): Valid IDs to match against
-     Returns:
-         pd.DataFrame: Matched encounters dataframe
-     Raises:
-         ValueError: If both matching methods fail
-     """
+  def __get_matched_encounters(self, list_valid_ids: list) -> pd.DataFrame:
     try:
       extractor = EncounterInfoExtractorWithBillingId()
       matcher = DatabaseEncounterMatcher(extractor)
@@ -120,6 +92,39 @@ class P21Importer:
       matcher = DatabaseEncounterMatcher(extractor)
       return matcher.get_matched_df(list_valid_ids)
 
+  def __enrich_with_admission_dates(self, verifier_fall, df_mapping: pd.DataFrame) -> pd.DataFrame:
+    dict_admission_dates = verifier_fall.get_unique_ids_of_valid_encounter_with_admission_dates()
+    df_admission_dates = pd.DataFrame({
+      "encounter_id": list(dict_admission_dates.keys()),
+      "aufnahmedatum": list(dict_admission_dates.values()),
+    })
+    return pd.merge(df_mapping, df_admission_dates, on=["encounter_id"])
+
+  def __print_verification_stats(self, verifier_fall, list_valid_ids: list, df_mapping: pd.DataFrame):
+    print(f"Fälle gesamt: {verifier_fall.count_total_encounter()}")
+    print(f"Fälle valide: {len(list_valid_ids)}")
+    print(f"Valide Fälle gematcht mit Datenbank: {df_mapping.shape[0]}")
+
+  def __import_observation_facts(self, df_mapping: pd.DataFrame, path_tmp:str):
+    for uploader_class in [
+      FALLObservationFactUploadManager,
+      FABObservationFactUploadManager,
+      ICDObservationFactUploadManager,
+      OPSObservationFactUploadManager,
+    ]:
+      uploader = uploader_class(df_mapping, path_tmp)
+      if uploader.VERIFIER.is_csv_in_folder():
+        uploader.upload_csv()
+      # Store metrics for unique encounters
+      if isinstance(uploader, FALLObservationFactUploadManager):
+        self.__num_imports = uploader.NUM_IMPORTS
+        self.__num_updates = uploader.NUM_UPDATES
+
+  def __print_import_results(self):
+    print(f"Fälle hochgeladen: {self.__num_imports + self.__num_updates}")
+    print(f"Neue Fälle hochgeladen: {self.__num_imports}")
+    print(f"Bestehende Fälle aktualisiert: {self.__num_updates}")
+
   def import_file(self):
     """Handles the full file import and data upload process.
 
@@ -129,53 +134,23 @@ class P21Importer:
       3. CSV uploads for different observation types (FALL, FAB, ICD, OPS)
       4. Final cleanup of temporary resources
 
-      Globals:
-          Modifies num_imports (int): Count of new records imported
-          Modifies num_updates (int): Count of existing records updated
-
       Prints:
           Validation statistics and upload results summary
-
-      Returns:
-          None
-
       Raises:
           Exception: Propagates any errors from processing steps (final cleanup always occurs)
       """
-    global num_imports, num_updates
     try:
-      path_tmp, verifier_fall, list_valid_ids = self.__verify_and_prepare()
-      df_mapping = self.__get_matched(list_valid_ids)
-      dict_admission_dates = (
-        verifier_fall.get_unique_ids_of_valid_encounter_with_admission_dates()
-      )
-      print(f"Fälle gesamt: {verifier_fall.count_total_encounter()}")
-      print(f"Fälle valide: {len(list_valid_ids)}")
-      print(f"Valide Fälle gematcht mit Datenbank: {df_mapping.shape[0]}")
-      df_admission_dates = pd.DataFrame(
-          {
-            "encounter_id": list(dict_admission_dates.keys()),
-            "aufnahmedatum": list(dict_admission_dates.values()),
-          }
-      )
-      df_mapping = pd.merge(df_mapping, df_admission_dates, on=["encounter_id"])
-      for uploader_class in [
-        FALLObservationFactUploadManager,
-        FABObservationFactUploadManager,
-        ICDObservationFactUploadManager,
-        OPSObservationFactUploadManager,
-      ]:
-        uploader = uploader_class(df_mapping, path_tmp)
-        if uploader.VERIFIER.is_csv_in_folder():
-          uploader.upload_csv()
-        if isinstance(uploader, FALLObservationFactUploadManager):
-          num_imports = uploader.NUM_IMPORTS
-          num_updates = uploader.NUM_UPDATES
-      print(f"Fälle hochgeladen: {num_imports + num_updates}")
-      print(f"Neue Fälle hochgeladen: {num_imports}")
-      print(f"Bestehende Fälle aktualisiert: {num_updates}")
+      path_tmp = self.__extract_and_rename_zip_content()
+      self.__preprocess_and_check_csv_files(path_tmp)
+      verifier_fall = FALLVerifier(path_tmp)
+      list_valid_ids = verifier_fall.get_unique_ids_of_valid_encounter()
+      df_mapping = self.__get_matched_encounters(list_valid_ids)
+      df_mapping = self.__enrich_with_admission_dates(verifier_fall, df_mapping)
+      self.__print_verification_stats(verifier_fall, list_valid_ids, df_mapping)
+      self.__import_observation_facts(df_mapping, path_tmp)
+      self.__print_import_results()
     finally:
-      self.tfm.remove_tmp_folder()
+      self.__tfm.remove_tmp_folder()
 
 
 class ZipFileExtractor:
@@ -1260,7 +1235,7 @@ class OPSObservationFactUploadManager(CSVObservationFactUploadManager):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 2:
         raise SystemExit('Sys.argv don\'t match')
     p21 = P21Importer(sys.argv[1])
     p21.import_file()

@@ -18,7 +18,6 @@ path_zip = os.path.join(path_resources, "p21_verification.zip")
 os.environ["path_aktin_properties"] =  path_aktin_properties
 
 start_time = time.time()
-
 p21 = P21Importer(path_zip)
 p21.import_file()
 print("--- %s seconds ---" % (time.time() - start_time))
