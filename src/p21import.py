@@ -148,22 +148,6 @@ class P21Importer:
       )
 
   def verify_file(self):
-    """
-    Verifies the contents of the provided zip file and matches valid encounters with database records.
-
-    This method performs the following steps:
-    1. Extracts and preprocesses the contents of the zip file.
-    2. Validates the `fall.csv` file and retrieves a list of valid encounter IDs.
-    3. Matches the valid encounter IDs with database records using billing IDs or encounter IDs.
-    4. Prints the total number of encounters, the number of valid encounters,
-    and the number of valid encounters matched with the database.
-
-    Returns:
-        None
-
-    Raises:
-        SystemExit: If any critical error occurs during the verification process.
-    """
     try:
       _, verifier_fall, list_valid_ids = self.__verify_and_prepare()
       list_matched = self.__get_matched(list_valid_ids, as_df=False)
@@ -210,6 +194,9 @@ class P21Importer:
       dict_admission_dates = (
         verifier_fall.get_unique_ids_of_valid_encounter_with_admission_dates()
       )
+      print(f"Fälle gesamt: {verifier_fall.count_total_encounter()}")
+      print(f"Fälle valide: {len(list_valid_ids)}")
+      print(f"Valide Fälle gematcht mit Datenbank: {df_mapping.shape[0]}")
       df_admission_dates = pd.DataFrame(
           {
             "encounter_id": list(dict_admission_dates.keys()),
