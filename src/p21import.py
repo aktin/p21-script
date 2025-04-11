@@ -1348,7 +1348,9 @@ if __name__ == '__main__':
     if len(sys.argv) != 3:
         raise SystemExit('sys.argv don\'t match')
     p21 = P21Importer(sys.argv[2])
-    if sys.argv[1] == 'import_file':
+    if sys.argv[1] == 'verify_file':
+        p21.verify_file()
+    elif sys.argv[1] == 'import_file':
         p21.import_file()
     else:
         raise SystemExit('unknown method function')
