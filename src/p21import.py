@@ -50,9 +50,6 @@ Script to verify and import p21 data into the AKTIN DWH:
 through the optional csv-files (fab,icd,ops) and uploads their facts too
 """
 
-# TODO keep download_date/import_date when updating encounter
-# TODO duplicate print of nonexisting files on import
-
 class P21Importer:
 
   def __init__(self, path_zip: str):
